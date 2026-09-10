@@ -88,11 +88,13 @@
   <p class="note" id="hint"></p>
 
   <section>
-    <h2>What the service has, and what it costs to be missing</h2>
+    <h2>Which languages need work first</h2>
     <p class="note">
-      Every language with any coverage, coloured by how much. Ranked by
-      <b>readers × places unnamed</b> — “69,700 places missing” is the same number for
-      Khmer and Hindi, and those are not the same problem.
+      Every language this service holds, biggest audience first. Green is good, red is thin.
+      <br>
+      Sorted by <b>how many people a gap affects</b>, not by how big the gap is.
+      365 million people read Hindi and 17 million read Khmer, so the same missing
+      names matter twenty times more in Hindi.
     </p>
     <table class="heat"><thead><tr><th>language</th><th>readers</th>
       <th>countries</th><th>states</th><th>cities</th><th>where the readers are</th></tr></thead>
@@ -108,9 +110,9 @@
     </tr></thead>
     <tbody id="coverage"></tbody></table>
     <p class="note">
-      Two numbers, never one. <b>Named</b> counts any name at all; <b>translated</b> excludes the
-      romanised fallbacks. A single number would read 100% for a language whose every value is the
-      English string — which is the failure this service exists to make visible.
+      <b>Everywhere</b> counts all 69,700 cities on earth. <b>In this country</b> counts only the one
+      selected above — which is the number that matters if your users are there.
+      Hindi cities are 17% worldwide and 54% in India. Both are true.
     </p>
   </section>
 </main>
@@ -265,8 +267,10 @@ async function loadHeat() {
     body.append(tr)
   }
   $("heatnote").textContent =
-    `${locales.length} languages in the database; ${rows.length} shown, those CLDR has a reader estimate for. ` +
-    `Green is 70%+, amber 30–70%, red below. Countries are complete everywhere; cities are where the work is.`
+    `Showing the ${rows.length} biggest of ${locales.length} languages. ` +
+    `Green is 70% or more, amber 30–70%, red below that. ` +
+    `Every language has all 257 countries; cities are where the gaps are — and these are worldwide figures, ` +
+    `so a language spoken in one country looks worse here than it is. The table below shows both.`
 }
 
 /**
