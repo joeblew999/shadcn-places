@@ -39,11 +39,32 @@ What exists:
 | --- | --- | --- |
 | **Countries** | 280 | **100%, every locale ICU carries.** The only complete tier |
 | **Subdivisions** | 5,308 | 100% in 19 languages, plus each one in its own language |
-| **Cities** | 152,970 | A romanised name always; own-language 48–94%; cross-language 83–99% above 100k people, 68–89% for 15k–100k in the larger Wikipedia languages |
+| **Cities** | 34,135 | **A romanised name, and usually nothing else.** See below — this is the tier open data does not have |
 
 Every name carries a **`kind`** — `translated`, `native`, `romanised`,
 `transliterated` — and the **source** it came from. So you always know whether
 you are reading a real translation or a fallback, and so do we.
+
+### Cities are not translated, and no open source fixes that
+
+Measured against 400 real Brazilian cities, joined to Wikidata on `P1566` (305
+matched, so the join is sound): **296 English labels, 10 Portuguese, 3 Japanese,
+1 Russian.**
+
+An earlier version of this file claimed 83–99% cross-language coverage for cities.
+That figure was measured over Wikidata items *carrying a population statement* —
+6,451 in the 15k–100k band, against roughly 30,000 real cities in it — so it had
+narrowed to the fifth of the world Wikidata knows best. An item somebody curated
+a population onto is the item somebody curated labels onto. The number was true
+and described the wrong population.
+
+For a Latin-script reader this costs nothing: "Ourinhos" is what a Portuguese,
+German or Vietnamese reader writes anyway. For Thai, Japanese, Korean, Chinese,
+Arabic or Russian it means Latin characters inside the sentence for essentially
+every city on earth — which is why transliteration is on the roadmap as the only
+answer that exists, not as a refinement.
+
+Ask `/api/coverage/{locale}` rather than trusting any of this.
 
 ## Live
 
