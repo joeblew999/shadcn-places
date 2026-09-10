@@ -153,8 +153,33 @@ export const contract = {
       .output(
         z.object({
           locale: z.string(),
+          /**
+           * Whether this locale is written in Latin script — and therefore which
+           * number above is the one to read.
+           *
+           * For Thai or Japanese, `translated` is the real figure: a Latin string
+           * is unreadable, so a name identical to the pivot is a gap.
+           *
+           * For Vietnamese or Indonesian it is `named`, and `translated`
+           * understates badly. "Brazil" in Vietnamese is "Brazil". Our merge
+           * demotes any value identical to the pivot to `romanised`, which is
+           * right for detecting untranslated Thai and wrong as a quality signal
+           * here — it reported Vietnamese countries at 35% when a Vietnamese
+           * reader sees the correct name for all 257.
+           *
+           * Returned rather than assumed because only the caller knows whether
+           * they are showing this to a person or counting it in a dashboard.
+           */
+          latinScript: z.boolean(),
           tiers: z.array(
-            z.object({ type: z.string(), total: z.number(), named: z.number(), translated: z.number() }),
+            z.object({
+              type: z.string(),
+              total: z.number(),
+              /** Has any name at all. The meaningful figure for a Latin-script locale. */
+              named: z.number(),
+              /** Excludes romanised fallbacks. The meaningful figure for every other script. */
+              translated: z.number(),
+            }),
           ),
         }),
       ),

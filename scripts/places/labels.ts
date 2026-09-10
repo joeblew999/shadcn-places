@@ -88,19 +88,36 @@ export async function labels(argv: string[]): Promise<void> {
   const limit = limitArg ? Number(limitArg.slice("--limit=".length)) : Infinity
   const country = argv.find((a) => a.startsWith("--country="))?.slice("--country=".length)?.toUpperCase()
 
-  // Only cities need this: countries come complete from CLDR, and subdivisions
-  // are already at 98-99% from dr5hn in the languages it carries.
+  /**
+   * Two tiers, two join keys, because the sources gave us different things.
+   *
+   * Cities carry a GeoNames id and mostly no QID — GeoNames' own `wkdt` rows
+   * cover 32% — so they are found through `P1566`, Wikidata's GeoNames property,
+   * which matched 76% in testing.
+   *
+   * Subdivisions are the opposite: dr5hn ships a `wikiDataId` on 98% of them, so
+   * they can be looked up by QID directly. That is the better join where it
+   * exists — an identifier rather than a property that happens to be filled in.
+   */
+  const tier = argv.includes("--subdivisions") ? "subdivisions" : "cities"
   const ids: string[] = []
-  for await (const p of records<MergedPlace>(join(OUT, "cities.merged.ndjson"))) {
+  const qids: string[] = []
+  const file = tier === "subdivisions" ? "subdivisions.merged.ndjson" : "cities.merged.ndjson"
+  for await (const p of records<MergedPlace>(join(OUT, file))) {
     if (country && p.country !== country) continue
-    ids.push(p.id.replace("city:", ""))
-    if (ids.length >= limit) break
+    if (tier === "subdivisions") {
+      if (p.wikidata) qids.push(`${p.wikidata}|${p.id}`)
+    } else {
+      ids.push(p.id.replace("city:", ""))
+    }
+    if (ids.length >= limit || qids.length >= limit) break
   }
 
-  console.log(`  ${ids.length.toLocaleString()} cities, ${locales.length} languages, batches of ${BATCH}`)
-  console.log(`  joined on P1566 — Wikidata's GeoNames id, so no name matching is involved\n`)
+  const count = tier === "subdivisions" ? qids.length : ids.length
+  console.log(`  ${count.toLocaleString()} ${tier}, ${locales.length} languages, batches of ${BATCH}`)
+  console.log(`  joined on ${tier === "subdivisions" ? "the QID dr5hn supplies" : "P1566 — Wikidata's GeoNames id"}, so no name matching is involved\n`)
 
-  const out = ndjsonWriter(join(OUT, "city-labels.ndjson"))
+  const out = ndjsonWriter(join(OUT, `${tier === "subdivisions" ? "subdivision" : "city"}-labels.ndjson`))
   let found = 0
   let skipped = 0
   // Commas, not spaces. `VALUES` wants a space-separated list and `IN()` wants a
@@ -110,35 +127,54 @@ export async function labels(argv: string[]): Promise<void> {
   // reason it was obvious the fault was ours.
   const langFilter = locales.map((l) => `"${l}"`).join(", ")
 
-  for (let i = 0; i < ids.length; i += BATCH) {
-    const slice = ids.slice(i, i + BATCH)
-    const values = slice.map((id) => `"${id}"`).join(" ")
-    const query = `
-      SELECT ?gid ?label WHERE {
-        VALUES ?gid { ${values} }
-        ?c wdt:P1566 ?gid .
-        ?c rdfs:label ?label .
-        FILTER(LANG(?label) IN (${langFilter}))
-      }`
+  const work = tier === "subdivisions" ? qids : ids
+  for (let i = 0; i < work.length; i += BATCH) {
+    const slice = work.slice(i, i + BATCH)
+    let query: string
+    let backToId: (key: string) => string
+    if (tier === "subdivisions") {
+      const pairs = new Map(slice.map((s) => [s.split("|")[0], s.split("|")[1]]))
+      const values = [...pairs.keys()].map((q) => `wd:${q}`).join(" ")
+      query = `
+        SELECT ?c ?label WHERE {
+          VALUES ?c { ${values} }
+          ?c rdfs:label ?label .
+          FILTER(LANG(?label) IN (${langFilter}))
+        }`
+      backToId = (uri) => pairs.get(uri.replace("http://www.wikidata.org/entity/", "")) ?? ""
+    } else {
+      const values = slice.map((id) => `"${id}"`).join(" ")
+      query = `
+        SELECT ?gid ?label WHERE {
+          VALUES ?gid { ${values} }
+          ?c wdt:P1566 ?gid .
+          ?c rdfs:label ?label .
+          FILTER(LANG(?label) IN (${langFilter}))
+        }`
+      backToId = (gid) => `city:${gid}`
+    }
     const rows = await ask(query)
     if (!rows) { skipped += slice.length; continue }
     for (const r of rows) {
       const value = r.label?.value
       const locale = (r.label as unknown as { "xml:lang"?: string })?.["xml:lang"]
-      const geonameId = r.gid?.value
-      if (!value || !locale || !geonameId) continue
+      const key = (r.gid ?? r.c)?.value
+      if (!value || !locale || !key) continue
+      const placeId = backToId(key)
+      if (!placeId) continue
       found++
-      out.write({ geonameId, locale, value } satisfies LabelRow)
+      out.write({ geonameId: placeId.replace(/^city:/, ""), placeId, locale, value })
     }
-    const done = Math.min(i + BATCH, ids.length)
-    process.stdout.write(`\r  ${done}/${ids.length} cities · ${found.toLocaleString()} labels`)
+    const done = Math.min(i + BATCH, work.length)
+    process.stdout.write(`\r  ${done}/${work.length} ${tier} · ${found.toLocaleString()} labels`)
   }
   await out.close()
 
-  console.log(`\n\n  ${found.toLocaleString()} labels → ${join(OUT, "city-labels.ndjson")}`)
+  const written = join(OUT, `${tier === "subdivisions" ? "subdivision" : "city"}-labels.ndjson`)
+  console.log(`\n\n  ${found.toLocaleString()} labels → ${written}`)
   if (skipped) {
     console.log(`  ${skipped.toLocaleString()} cities were not reached. They are absent from the output,`)
     console.log(`  which is not the same as having no name — re-run to fill them.`)
   }
-  console.log("\n  Fold them in with: bun run places merge cities")
+  console.log(`\n  Fold them in with: bun run places merge ${tier}`)
 }

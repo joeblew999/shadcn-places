@@ -18,7 +18,7 @@ import { implement } from "@orpc/server"
 import { RPCHandler } from "@orpc/server/fetch"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
 import { contract } from "./api/contract.ts"
-import { SOURCES } from "../scripts/lib/sources.ts"
+import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
 
 interface Env {
   DB: D1Database
@@ -191,7 +191,11 @@ const router = os.router({
       )
         .bind(locale, base)
         .all<{ type: string; total: number; named: number; translated: number }>()
-      return { locale: input.locale, tiers: results }
+      return {
+        locale: input.locale,
+        latinScript: !NON_LATIN_SCRIPT.has(input.locale) && !NON_LATIN_SCRIPT.has(base),
+        tiers: results,
+      }
     }),
   },
 })

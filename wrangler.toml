@@ -5,9 +5,11 @@ main = "src/index.ts"
 compatibility_date = "2026-09-10"
 compatibility_flags = ["nodejs_compat"]
 
-# The registry items are files, not routes. Served from /r/ so the install URL in
-# the README is the URL that works. The demo rides along in the same directory —
-# a service whose front page is a JSON blob is one people close.
+# Everything served as a file lives in public/ and nowhere else. It held the demo
+# and the registry item as copies of demo/ and registry/ for a while, which meant
+# editing the demo changed nothing until somebody remembered to copy it — a step
+# that exists only to be forgotten. registry/ stays as the authoring location for
+# the item's canonical form; public/ is what is served.
 [assets]
 directory = "public"
 binding = "REGISTRY"

@@ -65,8 +65,12 @@ export async function report(argv: string[]): Promise<void> {
     return
   }
 
-  console.log("Coverage per language. `named` is any name at all; `translated` excludes")
-  console.log("romanised fallbacks. For a non-Latin script (*) the gap between them is the story.\n")
+  console.log("Coverage per language, as named% / translated%.\n")
+  console.log("Which number matters depends on the script, and the marks say which:")
+  console.log("  *  non-Latin script — read `translated`. A Latin string is unreadable, so a")
+  console.log("     name identical to the pivot is a gap, not a translation.")
+  console.log("     Latin script — read `named`. \"Brazil\" in Vietnamese is \"Brazil\", and")
+  console.log("     `translated` counts that as missing when the reader sees it correctly.\n")
   const header = tiers.filter((t) => totals.get(t)).map((t) => `${t} (${totals.get(t)})`)
   console.log(`  locale   ${header.map((h) => h.padStart(24)).join("")}`)
 

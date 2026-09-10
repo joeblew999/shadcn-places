@@ -202,5 +202,36 @@ await loadSubdivisions()
 q.value = "our"
 searchCities()
 </script>
+
+<script type="module">
+/**
+ * Reload when the page changes on disk. Localhost only.
+ *
+ * `wrangler dev` re-serves an edited asset immediately but has no way to tell the
+ * browser, so the loop was: edit, alt-tab, refresh, forget you refreshed, wonder
+ * why nothing changed. This asks the server for its own Last-Modified twice a
+ * second and reloads when it moves.
+ *
+ * Guarded on hostname rather than a build flag because this file is served as a
+ * static asset with no build step at all — there is nothing to strip it out, so
+ * it has to switch itself off. On the deployed service the condition is false and
+ * the timer never starts.
+ */
+if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+  let seen = null
+  setInterval(async () => {
+    try {
+      const res = await fetch(location.pathname, { method: "HEAD", cache: "no-store" })
+      const stamp = res.headers.get("etag") ?? res.headers.get("last-modified")
+      if (!stamp) return
+      if (seen && seen !== stamp) location.reload()
+      seen = stamp
+    } catch {
+      // The dev server restarting is the common case and is not worth reporting.
+    }
+  }, 500)
+  console.info("shadcn-places: watching this page for changes (localhost only)")
+}
+</script>
 </body>
 </html>

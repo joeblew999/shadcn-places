@@ -131,16 +131,22 @@ export function resolve(place: Place, overrides: Overrides = {}): Resolved[] {
  * somebody who never runs the SPARQL step.
  */
 function loadLabels(): Map<string, Name[]> {
-  const path = join(OUT, "city-labels.ndjson")
   const out = new Map<string, Name[]>()
-  if (!existsSync(path)) return out
-  for (const line of readFileSync(path, "utf8").trimEnd().split("\n")) {
-    if (!line) continue
-    const { geonameId, locale, value } = JSON.parse(line) as { geonameId: string; locale: string; value: string }
-    const id = `city:${geonameId}`
-    const list = out.get(id) ?? []
-    list.push({ locale, value, source: "wikidata", kind: "translated" })
-    out.set(id, list)
+  for (const tier of ["city", "subdivision"]) {
+    const path = join(OUT, `${tier}-labels.ndjson`)
+    if (!existsSync(path)) continue
+    for (const line of readFileSync(path, "utf8").trimEnd().split("\n")) {
+      if (!line) continue
+      const row = JSON.parse(line) as { geonameId?: string; placeId?: string; locale: string; value: string }
+      // `placeId` is the current field; `geonameId` is what the first version of
+      // the city pass wrote, and a run from before this change should still fold in
+      // rather than being silently ignored.
+      const id = row.placeId ?? (row.geonameId ? `city:${row.geonameId}` : "")
+      if (!id) continue
+      const list = out.get(id) ?? []
+      list.push({ locale: row.locale, value: row.value, source: "wikidata", kind: "translated" })
+      out.set(id, list)
+    }
   }
   return out
 }

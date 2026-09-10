@@ -31,7 +31,7 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     run: async (argv) => (await import("./places/score.ts")).score(argv),
   },
   labels: {
-    help: "labels [--country=BR] [--limit=N] [--locales=a,b]   city names from Wikidata, joined on P1566",
+    help: "labels [--subdivisions] [--locales=a,b]   names from Wikidata, joined on P1566 or the QID",
     run: async (argv) => (await import("./places/labels.ts")).labels(argv),
   },
   diff: {
