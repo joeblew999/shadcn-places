@@ -47,6 +47,15 @@ import SPEAKERS from "./api/speakers.json"
 export { RefreshNames } from "./refresh.ts"
 
 /**
+ * The ETL's top half, staged on Cloudflare rather than on somebody's laptop.
+ *
+ * Exported here for the same reason as the refresh: a `[[workflows]]` binding
+ * names a class the deploy must be able to find, and a class defined in a module
+ * nothing imports is not in the bundle.
+ */
+export { StageSources } from "./etl/stage.ts"
+
+/**
  * `Env` is generated from wrangler.jsonc by `bun run types`, not written here.
  *
  * It used to be four hand-maintained lines, which meant a binding could be added

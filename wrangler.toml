@@ -45,6 +45,13 @@ name = "refresh-names"
 binding = "REFRESH"
 class_name = "RefreshNames"
 
+# The ETL's top half. Not on a schedule: it runs when a *source* releases, which
+# is a decision rather than a rhythm — and it is the expensive one.
+[[workflows]]
+name = "stage-sources"
+binding = "STAGE"
+class_name = "StageSources"
+
 # Sunday, early. Nothing about this is urgent and the endpoints it leans on are
 # other people's volunteer infrastructure — off-peak is simple politeness.
 [triggers]
