@@ -19,6 +19,14 @@ export interface RawName {
   value: string
   source: string
   kind: "translated" | "native" | "romanised" | "transliterated" | "override"
+  /**
+   * The source marked this the preferred name for its language.
+   *
+   * Only GeoNames says so, and only for 557,777 of its 19.1 million rows. It
+   * breaks ties that `kind` cannot: "Gold" and "Gold Coast" are both `translated`
+   * English names for the same place, and one of them is right.
+   */
+  preferred?: boolean
 }
 
 /** A place as extracted, before merge. Matches `.build/*.ndjson`. */
@@ -66,15 +74,40 @@ function column(line: string, index: number): string {
  * here rather than guessed at, and the number is recorded so the decision can be
  * revisited with evidence.
  */
-export function parseAlternateName(line: string): { geonameId: string; kind: "wikidata" | "name"; locale: string; value: string } | null {
+export function parseAlternateName(
+  line: string,
+): { geonameId: string; kind: "wikidata" | "name"; locale: string; value: string; preferred: boolean } | null {
   const geonameId = column(line, 1)
   if (!geonameId) return null
   const value = column(line, 3)
   if (!value) return null
   const lang = column(line, 2)
-  if (lang === "wkdt") return { geonameId, kind: "wikidata", locale: "", value }
+  if (lang === "wkdt") return { geonameId, kind: "wikidata", locale: "", value, preferred: false }
   if (!lang || !isLanguageTag(lang)) return null
-  return { geonameId, kind: "name", locale: lang, value }
+
+  /**
+   * Columns 6 and 7: colloquial and historic. Both are dropped.
+   *
+   * GeoNames records "Syd" for Sydney and "Constantinople" for Istanbul, and
+   * both are true facts that nobody wants in a picker. 5,195 colloquial and
+   * 43,962 historic rows in the file — small enough to have been invisible, big
+   * enough to put a wrong name in front of somebody.
+   */
+  if (column(line, 6) === "1" || column(line, 7) === "1") return null
+
+  /**
+   * Column 4: `isPreferredName`, which this ignored entirely.
+   *
+   * GeoNames marks one name per language as the preferred one — 557,777 of the
+   * 19.1 million rows — and without reading it the merge kept whichever arrived
+   * first among names of equal kind. So the service served **"Gold"** for Gold
+   * Coast, **"Sydney City"** for Sydney and **"Melbourne City"** for Melbourne,
+   * while the row marked preferred sat right beside each one.
+   *
+   * Found by looking at the demo rather than by any test: six Australian cities
+   * on screen and two of them wrong.
+   */
+  return { geonameId, kind: "name", locale: lang, value, preferred: column(line, 4) === "1" }
 }
 
 /**

@@ -248,17 +248,27 @@ const router = os.router({
        * any `%` or `_` the caller typed is escaped, so a user typing a wildcard
        * searches for that character rather than accidentally requesting a scan.
        */
-      const prefix = input.q.replace(/[%_\\]/g, "\\$&") + "%"
-      const parent = input.subdivision
-        ? "AND p.parent_id = ?"
-        : ""
+      const parent = input.subdivision ? "AND p.parent_id = ?" : ""
       const binds: unknown[] = [locale, base, input.country.toUpperCase()]
       if (input.subdivision) binds.push(input.subdivision)
-      binds.push(prefix, prefix, input.limit)
+
+      /**
+       * No query means "the biggest cities here", which is what a dropdown opens with.
+       *
+       * The same index and the same ordering as the search — `country_code` +
+       * `type`, by population, limited — so it costs what a keystroke costs.
+       */
+      let where = ""
+      if (input.q) {
+        const prefix = input.q.replace(/[%_\\]/g, "\\$&") + "%"
+        where = `AND (p.pivot LIKE ? ESCAPE '\\' OR n.value LIKE ? ESCAPE '\\')`
+        binds.push(prefix, prefix)
+      }
+      binds.push(input.limit)
       const { results } = await context.env.DB.prepare(
         `${SELECT}
           WHERE p.country_code = ? AND p.type = 'city' ${parent}
-            AND (p.pivot LIKE ? ESCAPE '\\' OR n.value LIKE ? ESCAPE '\\')
+            ${where}
           ORDER BY p.population DESC NULLS LAST
           LIMIT ?`,
       )

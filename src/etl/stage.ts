@@ -291,7 +291,7 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
             const target = subdivisionId ? subdivisionNames : byId
             const targetKey = subdivisionId ?? row.geonameId
             const list = target.get(targetKey) ?? []
-            list.push({ locale: row.locale, value: row.value, source: "geonames", kind: "translated" })
+            list.push({ locale: row.locale, value: row.value, source: "geonames", kind: "translated", preferred: row.preferred })
             target.set(targetKey, list)
             taken++
           }

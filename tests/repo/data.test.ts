@@ -91,15 +91,46 @@ describe.skipIf(!have("countries") || !have("subdivisions"))("the hierarchy hold
 
 describe.skipIf(!have("countries"))("names are honest", () => {
   it("never records a name identical to the pivot as a translation", async () => {
+    /**
+     * True of every language except the one the pivot is written in.
+     *
+     * The pivot is the romanised English name, so an English row equal to it is
+     * not a fallback — it is the answer. This rule did not exclude English and
+     * never fired, because the merge was demoting those rows to `romanised`
+     * anyway. That demotion is what made a *worse* English name outrank a better
+     * one: GeoNames offers "Gold Coast" (marked preferred) and "Gold" for the
+     * same place, the first was demoted for matching the pivot, and the service
+     * served "Gold". Also "Sydney City" over Sydney, "Melbourne City" over
+     * Melbourne — three of the six cities on the demo's front page.
+     *
+     * Two rules were quietly agreeing with each other and both were wrong. The
+     * merge stopped demoting English; this stopped asserting it should.
+     *
+     * The purpose is unchanged and is the reason it exists: a Thai or Russian
+     * name that is secretly the English string must never count as a translation,
+     * or the coverage numbers become marketing.
+     */
     const bad: string[] = []
     for (const p of await load("countries")) {
       for (const n of p.names) {
+        if (n.locale === "en" || n.locale.startsWith("en-")) continue
         if (n.value === p.pivot && n.kind === "translated") bad.push(`${p.id} ${n.locale}`)
       }
     }
-    // The whole point of `kind`. If this ever passes silently, coverage numbers
-    // become marketing.
     expect(bad.slice(0, 10), `${bad.length} names claim to be translations of themselves`).toEqual([])
+  })
+
+  it("still catches a non-English name that is secretly the English string", async () => {
+    // The rule above is scoped now, so this proves the scoping did not gut it: a
+    // Thai row holding the English word must be `romanised`, never `translated`.
+    const { resolve } = await import("../../src/etl/resolve.ts")
+    const place = {
+      id: "city:1",
+      type: "city" as const,
+      pivot: "Ourinhos",
+      names: [{ locale: "th", value: "Ourinhos", source: "dr5hn", kind: "translated" as const }],
+    }
+    expect(resolve(place, {})[0].kind).toBe("romanised")
   })
 
   it("gives every place a pivot to fall back to", async () => {

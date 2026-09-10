@@ -58,14 +58,40 @@ export interface MergedPlace extends Omit<Place, "names"> {
  * "İstanbul" for matching English "Istanbul" would be the same class of error
  * this function exists to prevent, pointing the other way.
  */
+/**
+ * English is the pivot's language, so a name equal to the pivot is correct there.
+ *
+ * Region variants included: `en-AU` is English and the pivot is its name too.
+ */
+const isEnglish = (locale: string) => locale === "en" || locale.startsWith("en-")
+
 const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
 
 function actualKind(name: Name, pivot: string): Kind {
   // An override is not evidence to be re-examined; a human already decided.
   if (name.kind === "override") return "override"
   if (name.kind === "native") return "native"
-  // Identical to the pivot: a romanisation whatever the source called it.
-  if (name.value === pivot) return "romanised"
+  /**
+   * Identical to the pivot: a romanisation whatever the source called it —
+   * **unless the locale is English, where the pivot is the English name.**
+   *
+   * The exception is not a nicety. GeoNames offers two English names for Gold
+   * Coast: "Gold Coast", marked preferred, and "Gold". This rule demoted the
+   * first to `romanised` for matching the pivot, so the second outranked it and
+   * the service served **"Gold"**. Same for "Sydney City" over Sydney and
+   * "Melbourne City" over Melbourne — three of the six Australian cities on the
+   * demo's front page were wrong.
+   *
+   * `romanised` means *nobody has written this in your language*. For Thai that
+   * is exactly what a Latin string means. For English it is the opposite: the
+   * pivot IS the English name, and calling it a fallback lets any worse English
+   * name win.
+   *
+   * The same fact already had to be special-cased at read time in `toPlace`,
+   * where every English row came back marked `romanised`. This is that fix at
+   * the place the decision is actually made.
+   */
+  if (name.value === pivot) return isEnglish(name.locale) ? "translated" : "romanised"
   /**
    * Latin letters in a language that is not written in them.
    *
@@ -141,7 +167,21 @@ export function resolve(place: Place, overrides: Overrides = {}): Resolved[] {
   }
   const out: Resolved[] = []
   for (const [locale, candidates] of byLocale) {
-    candidates.sort((a, b) => KIND_RANK[b.kind] - KIND_RANK[a.kind])
+    /**
+     * Kind first, then the source's own preference.
+     *
+     * `kind` cannot separate "Gold" from "Gold Coast" — both are `translated`
+     * English names for the same place — so before this the winner was whichever
+     * arrived first, and the service served "Gold", "Sydney City" and "Melbourne
+     * City" while the row GeoNames had marked preferred sat beside each one.
+     *
+     * Found by looking at the demo: six Australian cities on screen, two wrong.
+     */
+    candidates.sort((a, b) => {
+      const byKind = KIND_RANK[b.kind] - KIND_RANK[a.kind]
+      if (byKind !== 0) return byKind
+      return Number(b.preferred ?? false) - Number(a.preferred ?? false)
+    })
     const best = candidates[0]
     out.push({ locale, value: best.value, source: best.source, kind: best.kind, alternatives: candidates.length - 1 })
   }

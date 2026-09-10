@@ -58,6 +58,7 @@ describe("alternateNames rows", () => {
       kind: "name",
       locale: "th",
       value: "กรุงเทพมหานคร",
+      preferred: false,
     })
   })
 
@@ -69,7 +70,31 @@ describe("alternateNames rows", () => {
       kind: "wikidata",
       locale: "",
       value: "Q1861",
+      preferred: false,
     })
+  })
+
+  it("reads isPreferredName, which decides between two names in one language", () => {
+    /**
+     * Column 4, ignored until it produced "Gold" for Gold Coast.
+     *
+     * GeoNames offers both "Gold Coast" (preferred) and "Gold" as English names
+     * for the same place. `kind` cannot separate them — they are both translated
+     * English names — so without this flag the winner was whichever arrived
+     * first, and the front page of the demo said "Gold".
+     */
+    const preferred = `99\t1609350\tth\tกรุงเทพมหานคร\t1\t\t\t\t`
+    expect(parseAlternateName(preferred)?.preferred).toBe(true)
+    expect(parseAlternateName(row("1609350", "th", "กรุงเทพ"))?.preferred).toBe(false)
+  })
+
+  it("drops colloquial and historic names", () => {
+    // GeoNames records "Syd" for Sydney and "Constantinople" for Istanbul. Both
+    // true, neither wanted in a picker. Columns 6 and 7.
+    const colloquial = `99\t2147714\ten\tSyd\t\t\t1\t\t`
+    const historic = `99\t745044\ten\tConstantinople\t\t\t\t1\t`
+    expect(parseAlternateName(colloquial)).toBeNull()
+    expect(parseAlternateName(historic)).toBeNull()
   })
 
   it("drops the pseudo-languages GeoNames puts in that column", () => {

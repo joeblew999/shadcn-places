@@ -81,7 +81,7 @@
     </div>
     <div>
       <label for="q">City (type to search)</label>
-      <input id="q" placeholder="prefix, not substring" disabled autocomplete="off" />
+      <input id="q" placeholder="type to narrow — or leave blank for the biggest" disabled autocomplete="off" />
     </div>
   </div>
   <ul id="cities"></ul>
@@ -210,15 +210,18 @@ let timer
 async function searchCities() {
   clearTimeout(timer)
   const code = country.value.replace("country:", "")
-  if (!code || q.value.length < 1) { cities.innerHTML = ""; return }
+  if (!code) { cities.innerHTML = ""; return }
   // Debounced because each keystroke is a database query somebody pays for.
   timer = setTimeout(async () => {
     const sub = subdivision.value ? `&subdivision=${encodeURIComponent(subdivision.value)}` : ""
     // The current path. `/cities?country=` still answers — LEGACY_PATHS rewrites
     // it and marks the response deprecated — but this repository's own demo
     // should not be the thing keeping a deprecated URL warm.
+    // No query means the biggest cities in the country, which is what a picker
+    // should open with. Typing narrows it.
+    const query = q.value ? `q=${encodeURIComponent(q.value)}&` : ""
     const { places } = await get(
-      `/countries/${code}/cities?q=${encodeURIComponent(q.value)}&locale=${locale.value}${sub}&limit=25`,
+      `/countries/${code}/cities?${query}locale=${locale.value}${sub}&limit=25`,
     )
     cities.innerHTML = ""
     for (const p of places) {
@@ -230,7 +233,11 @@ async function searchCities() {
       li.querySelector(".kind").textContent = p.kind
       cities.append(li)
     }
-    if (!places.length) cities.innerHTML = `<li class="note">Nothing starts with that. Search matches the start of a name, not the middle — a leading wildcard cannot use an index.</li>`
+    if (!places.length) {
+      cities.innerHTML = q.value
+        ? `<li class="note">Nothing starts with “${q.value}”. Search matches the start of a name, not the middle — a leading wildcard cannot use an index.</li>`
+        : `<li class="note">No cities in this country in the dataset.</li>`
+    }
   }, 200)
 }
 
@@ -332,7 +339,7 @@ async function loadCoverage() {
 }
 
 locale.addEventListener("change", loadCountries)
-country.addEventListener("change", () => { loadSubdivisions(); loadCoverage() })
+country.addEventListener("change", () => { loadSubdivisions().then(searchCities); loadCoverage() })
 subdivision.addEventListener("change", searchCities)
 q.addEventListener("input", searchCities)
 
@@ -405,6 +412,7 @@ country.value = preferredCountry([...country.options].map((o) => o.value))
  */
 if (country.value) await loadSubdivisions()
 await loadCoverage()
+searchCities()
 </script>
 
 <script type="module">

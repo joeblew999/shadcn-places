@@ -26,32 +26,22 @@ import { NOT_LANGUAGES, isLanguageTag, type Kind } from "../lib/sources.ts"
  * databases. Same rule as `src/etl/geonames.ts` for cities.
  */
 import { countryPlaces, parseSubdivisionRow, osmSubdivision, parseAdmin1Row } from "../../src/etl/tiers.ts"
+import { parseAlternateName } from "../../src/etl/geonames.ts"
 
 const STAGE = process.env.PLACES_STAGE ?? ".stage"
 const OUT = process.env.PLACES_OUT ?? ".build"
 
 /** One name, and how we came to have it. The `kind` is what makes a fallback honest. */
-export interface Name {
-  locale: string
-  value: string
-  source: string
-  kind: Kind
-}
-
-export interface Place {
-  id: string
-  type: "country" | "subdivision" | "city"
-  /** The romanised name. Always present — this is what `pick` degrades to. */
-  pivot: string
-  parent?: string
-  country?: string
-  lat?: number
-  lon?: number
-  population?: number
-  /** The Wikidata QID where a source gave us one, for the label join. */
-  wikidata?: string
-  names: Name[]
-}
+/**
+ * Defined in `src/etl/geonames.ts` and re-exported, not declared twice.
+ *
+ * These were a separate copy, and the moment `preferred` was added to one the
+ * other rejected it — which is the cheap version of the failure this repository
+ * keeps having. The Workflow and the CLI read the same rows; they should not
+ * disagree about what a row is.
+ */
+export type { RawName as Name, RawPlace as Place } from "../../src/etl/geonames.ts"
+import type { RawName as Name, RawPlace as Place } from "../../src/etl/geonames.ts"
 
 const manifest = (): Record<string, { file: string }> => {
   const p = join(STAGE, "manifest.json")
@@ -151,12 +141,15 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
   const alt = files["geonames-alternates"]?.file
   if (alt && idOf.size) {
     for await (const r of tsv(join(expand(alt), "alternateNames.txt"))) {
-      const [, geonameId, lang, value] = r
-      if (!geonameId || !value || !lang) continue
-      const id = idOf.get(geonameId)
-      if (!id || !isLanguageTag(lang)) continue
+      // Through the shared parser, so the CLI and the Workflow agree about which
+      // rows are usable — including `isPreferredName`, which decides between
+      // "Gold" and "Gold Coast", and the colloquial and historic flags.
+      const row = parseAlternateName(r.join("\t"))
+      if (!row || row.kind !== "name") continue
+      const id = idOf.get(row.geonameId)
+      if (!id) continue
       const list = fromGeoNames.get(id) ?? []
-      list.push({ locale: lang, value, source: "geonames", kind: "translated" })
+      list.push({ locale: row.locale, value: row.value, source: "geonames", kind: "translated", preferred: row.preferred })
       fromGeoNames.set(id, list)
     }
   }
@@ -207,13 +200,12 @@ async function* cities(files: Record<string, { file: string }>): AsyncGenerator<
     // One pass over the big file, keeping every language. 900MB expanded, so it
     // is streamed and nothing but the extracted names is retained.
     for await (const r of tsv(join(expand(alt), "alternateNames.txt"))) {
-      const [, geonameId, lang, value] = r
-      if (!geonameId || !value) continue
-      if (lang === "wkdt") { wikidata.set(geonameId, value); continue }
-      if (!isLanguageTag(lang)) continue
-      const list = byId.get(geonameId) ?? []
-      list.push({ locale: lang, value, source: "geonames", kind: "translated" })
-      byId.set(geonameId, list)
+      const row = parseAlternateName(r.join("\t"))
+      if (!row) continue
+      if (row.kind === "wikidata") { wikidata.set(row.geonameId, row.value); continue }
+      const list = byId.get(row.geonameId) ?? []
+      list.push({ locale: row.locale, value: row.value, source: "geonames", kind: "translated", preferred: row.preferred })
+      byId.set(row.geonameId, list)
     }
   }
 

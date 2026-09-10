@@ -119,7 +119,19 @@ export const contract = {
         z.object({
           country: z.string().length(2),
           subdivision: z.string().optional(),
-          q: z.string().min(1).max(64),
+          /**
+           * Omit it to get the biggest cities in the country instead.
+           *
+           * Required until now, which meant a picker could not show anything
+           * until somebody typed — and the demo only ever looked alive because it
+           * shipped with a search term pre-filled. Remove the seed and the page
+           * opens on an empty box, which is what a real consumer's picker did too.
+           *
+           * "The largest places here" is what a dropdown should open with, and it
+           * is as cheap as the prefix search: same index, ordered by population,
+           * same limit.
+           */
+          q: z.string().min(1).max(64).optional(),
           locale: Locale.default("en"),
           /**
            * A plain number. `SmartCoercionPlugin` turns the query string into one.
