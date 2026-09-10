@@ -50,32 +50,90 @@ const RADIUS = 0.02
  * a neighbour anyone would keep serving. The label pass can be six because
  * Wikidata's endpoint is sized differently; this one should not be.
  */
-const CONCURRENCY = 2
-const PAUSE_MS = 1200
+/**
+ * Two mirrors, alternated — because one host will not carry 245 queries.
+ *
+ * The main instance answered Thailand in ten seconds and then rate-limited every
+ * subsequent request; it is not that it refuses this workload, it is that one IP
+ * gets a small number of slots and a serial run exhausts them. Two of us made
+ * three requests before China came back 429.
+ *
+ * kumi.systems exists precisely for heavier use and is slower per query but has
+ * its own budget. Alternating gets two slots instead of one and spreads the cost
+ * across two volunteers rather than leaning on either. Both were measured
+ * answering the same query correctly before being trusted with it.
+ */
+const MIRRORS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+]
 
-async function overpass(country: string): Promise<unknown[] | null> {
+const CONCURRENCY = Number(process.env.PLACES_OSM_CONCURRENCY ?? MIRRORS.length)
+const PAUSE_MS = Number(process.env.PLACES_OSM_PAUSE_MS ?? 1500)
+
+/**
+ * `city|town` only, and not `village`.
+ *
+ * The first version asked for villages too and India alone returned 28MB after
+ * ten minutes — India has hundreds of thousands of them, and our inventory starts
+ * at five thousand people. At that rate the world was forty hours of somebody
+ * else's free infrastructure for data that could not match anything.
+ *
+ * The two tags that can match are the two we ask for. A village below the
+ * population floor has no row here to attach a name to.
+ */
+async function overpass(country: string, worker: number): Promise<unknown[] | null> {
   const query = `[out:json][timeout:180];
     area["ISO3166-1"="${country}"][admin_level=2]->.a;
-    node[place~"^(city|town|village)$"](area.a);
+    node[place~"^(city|town)$"](area.a);
     out;`
-  try {
-    const res = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places)",
-      },
-      body: new URLSearchParams({ data: query }),
-      signal: AbortSignal.timeout(240_000),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return ((await res.json()) as { elements?: unknown[] }).elements ?? []
-  } catch (e) {
-    // Skipped, never recorded as "this country has no names". Overpass rate-limits
-    // and times out, and a gap in the fetch must not become a fact in the data.
-    console.log(`\n    ${country}: ${(e as Error).message} — skipped, will be missing rather than empty`)
-    return null
+  /**
+   * A 429 is "come back later", not "no data".
+   *
+   * Overpass rate-limits by IP with a small number of slots, and two concurrent
+   * requests was already too many — it answered 429 for China and the first
+   * version wrote that down as a country with no names. That is the failure this
+   * whole project is organised against: an absence of *fetching* recorded as an
+   * absence in the world.
+   *
+   * So a rate-limit backs off and retries rather than counting as an answer, and
+   * only a persistent failure gives up — loudly, and still without writing a file,
+   * so a later run picks the country up again.
+   */
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      // Each worker keeps its own mirror, and a rate-limited retry moves to the
+      // other one — a 429 means "this host is busy", and asking it again first is
+      // the least useful thing to do.
+      const endpoint = MIRRORS[(worker + attempt - 1) % MIRRORS.length]
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places)",
+        },
+        body: new URLSearchParams({ data: query }),
+        signal: AbortSignal.timeout(240_000),
+      })
+      if (res.status === 429 || res.status === 504) {
+        // Overpass sends Retry-After sometimes; when it does not, back off anyway.
+        const wait = Number(res.headers.get("retry-after") ?? 0) * 1000 || attempt * 8_000
+        process.stdout.write(`\r    ${country}: rate-limited, waiting ${Math.round(wait / 1000)}s (attempt ${attempt}/5)   `)
+        await new Promise((r) => setTimeout(r, wait))
+        continue
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return ((await res.json()) as { elements?: unknown[] }).elements ?? []
+    } catch (e) {
+      if (attempt === 5) {
+        console.log(`\n    ${country}: ${(e as Error).message} — giving up for now, no file written so a later run retries`)
+        return null
+      }
+      await new Promise((r) => setTimeout(r, attempt * 5_000))
+    }
   }
+  console.log(`\n    ${country}: still rate-limited after 5 attempts — will be retried by a later run`)
+  return null
 }
 
 /** Which countries we actually have cities for. No point asking about the rest. */
@@ -106,7 +164,7 @@ export async function osm(argv: string[]): Promise<void> {
         const i = cursor++
         if (i >= todo.length) return
         const cc = todo[i]
-        const elements = await overpass(cc)
+        const elements = await overpass(cc, i)
         if (elements) writeFileSync(join(DIR, `${cc}.json`), JSON.stringify(elements))
         done++
         process.stdout.write(`\r  ${done}/${todo.length} countries`)

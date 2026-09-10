@@ -1,0 +1,231 @@
+/**
+ * The refresh: the service improving itself, on a schedule, with nobody watching.
+ *
+ * Everything in this database is currently current because somebody ran the ETL
+ * by hand today. GeoNames changes daily and Wikidata continuously, so without
+ * this the whole thing is a snapshot that quietly ages — and a places service
+ * that was right last year is a places service that is wrong.
+ *
+ * ## What runs here and what cannot
+ *
+ * Not the whole pipeline, and the boundary is a fact rather than a preference:
+ * GeoNames ships `.zip` archives and a Worker has `DecompressionStream` for gzip
+ * and deflate but no zip reader. That step stays a CLI job.
+ *
+ * It turns out to be the right seam anyway. The two halves change at completely
+ * different rates:
+ *
+ *   **which places exist** — GeoNames, dr5hn. Changes slowly. A new town is rare.
+ *   **what they are called** — Wikidata, OSM. Changes continuously, because
+ *   somebody adds a Thai name to a Polish town every day of the week.
+ *
+ * So the inventory is rebuilt occasionally by hand, and the names refresh
+ * themselves weekly. That is also the half that moves coverage.
+ *
+ * ## Why a Workflow rather than a cron Worker
+ *
+ * Because it will fail partway. Wikidata rate-limits, Overpass returns 429, a
+ * batch times out — all of which happened while building this. A Workflow step
+ * retries independently and the instance resumes rather than restarting, so a
+ * refresh that stumbles on batch 200 of 279 does not re-fetch the first 199.
+ *
+ * A plain cron Worker would also hit the 15-minute CPU ceiling; steps have their
+ * own budget each.
+ */
+
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
+
+interface Env {
+  DB: D1Database
+  /** Where a run's findings are staged before they touch the database. */
+  ARCHIVE: R2Bucket
+}
+
+interface Params {
+  /**
+   * Which languages to refresh. Empty means "ask the coverage table" — the loop
+   * running itself, which is the entire point of the schedule.
+   */
+  locales?: string[]
+  /** Cities per SPARQL query. Small enough to come back, large enough to finish. */
+  batch?: number
+}
+
+const ENDPOINT = "https://query.wikidata.org/sparql"
+
+/**
+ * The languages worth spending a refresh on, chosen by the data.
+ *
+ * Reads the same coverage table `/api/matrix` ranks from: languages that are
+ * strong in one tier and weak in another, ordered by how many readers that
+ * affects. A language nobody reads and a language we have never had are both
+ * excluded — the first is not worth the queries, the second is not a gap but an
+ * absence we do not claim to have filled.
+ */
+async function gapLocales(env: Env, limit = 12): Promise<string[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT locale,
+            MAX(CASE WHEN type = 'city' THEN real ELSE 0 END)         AS city,
+            MAX(CASE WHEN type = 'subdivision' THEN real ELSE 0 END)  AS sub
+       FROM coverage
+      WHERE locale NOT LIKE '%-%' AND locale != 'und'
+      GROUP BY locale
+      HAVING sub > 2000 AND city < 40000
+      ORDER BY city ASC
+      LIMIT ?`,
+  )
+    .bind(limit)
+    .all<{ locale: string }>()
+  return results.map((r) => r.locale)
+}
+
+async function sparql(query: string): Promise<Record<string, { value: string }>[] | null> {
+  const url = new URL(ENDPOINT)
+  url.searchParams.set("query", query)
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/sparql-results+json",
+      "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places) scheduled refresh",
+    },
+    signal: AbortSignal.timeout(90_000),
+  })
+  // Thrown, not swallowed: the step retries, and a rate-limited request must never
+  // become "this place has no name in that language".
+  if (!res.ok) throw new Error(`wikidata ${res.status}`)
+  const body = (await res.json()) as { results: { bindings: Record<string, { value: string }>[] } }
+  return body.results.bindings
+}
+
+export class RefreshNames extends WorkflowEntrypoint<Env, Params> {
+  async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
+    const batchSize = event.payload?.batch ?? 400
+
+    const locales = await step.do("choose the languages", async () => {
+      const chosen = event.payload?.locales?.length
+        ? event.payload.locales
+        : await gapLocales(this.env)
+      if (!chosen.length) throw new Error("no gap languages found — is the coverage table populated?")
+      return chosen
+    })
+
+    /**
+     * The cities to ask about, oldest gap first.
+     *
+     * Only places with no real name in *any* of the chosen languages: a city
+     * already named in all of them cannot be improved by asking again, and the
+     * whole cost here is the asking.
+     */
+    const targets = await step.do("find the cities still missing a name", async () => {
+      const placeholders = locales.map(() => "?").join(",")
+      const { results } = await this.env.DB.prepare(
+        `SELECT p.id id FROM place p
+          WHERE p.type = 'city'
+            AND NOT EXISTS (
+              SELECT 1 FROM name n
+               WHERE n.place_id = p.id
+                 AND n.locale IN (${placeholders})
+                 AND n.kind IN ('translated','native','override')
+            )
+          LIMIT 20000`,
+      )
+        .bind(...locales)
+        .all<{ id: string }>()
+      return results.map((r) => r.id.replace("city:", ""))
+    })
+
+    if (!targets.length) {
+      return { locales, checked: 0, added: 0, note: "nothing missing in these languages" }
+    }
+
+    const langFilter = locales.map((l) => `"${l}"`).join(", ")
+    let added = 0
+
+    /**
+     * One step per batch, so a failure costs one batch.
+     *
+     * Steps are the unit of retry and of resumption. Doing the whole fetch in a
+     * single step would mean a rate-limit at ninety percent throws all of it away,
+     * which is precisely what a Workflow exists to prevent.
+     */
+    for (let i = 0; i < targets.length; i += batchSize) {
+      const slice = targets.slice(i, i + batchSize)
+      const written = await step.do(
+        `fetch and store ${i}-${i + slice.length}`,
+        { retries: { limit: 4, delay: "20 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+        async () => {
+          const values = slice.map((id) => `"${id}"`).join(" ")
+          const rows = await sparql(`
+            SELECT ?gid ?label WHERE {
+              VALUES ?gid { ${values} }
+              ?c wdt:P1566 ?gid .
+              ?c rdfs:label ?label .
+              FILTER(LANG(?label) IN (${langFilter}))
+            }`)
+          if (!rows?.length) return 0
+
+          const statements = rows
+            .map((r) => {
+              const value = r.label?.value
+              const locale = (r.label as unknown as { "xml:lang"?: string })?.["xml:lang"]
+              const gid = r.gid?.value
+              if (!value || !locale || !gid) return null
+              /**
+               * `INSERT OR IGNORE`, never REPLACE.
+               *
+               * An override or a better source may already hold this (place,
+               * locale), and a scheduled job must not silently outrank a human.
+               * The merge's precedence lives in the ETL; here the rule is simply
+               * "fill a hole, never overwrite".
+               */
+              return this.env.DB.prepare(
+                `INSERT OR IGNORE INTO name (place_id, locale, value, source, kind)
+                 VALUES (?, ?, ?, 'wikidata', 'translated')`,
+              ).bind(`city:${gid}`, locale, value)
+            })
+            .filter((s): s is D1PreparedStatement => s !== null)
+
+          if (!statements.length) return 0
+          await this.env.DB.batch(statements)
+          return statements.length
+        },
+      )
+      added += written
+    }
+
+    /**
+     * Coverage is derived, so it is rebuilt rather than adjusted.
+     *
+     * Incrementing counters as rows are inserted would drift the first time a
+     * batch is retried and half-applied. Recomputing costs one query on a table
+     * this size and cannot be wrong.
+     */
+    await step.do("rebuild coverage", async () => {
+      await this.env.DB.batch([
+        this.env.DB.prepare(`DELETE FROM coverage`),
+        this.env.DB.prepare(
+          `INSERT INTO coverage (locale, type, named, real)
+           SELECT n.locale, p.type, COUNT(*),
+                  SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END)
+             FROM name n JOIN place p ON p.id = n.place_id
+            WHERE n.locale != 'und'
+            GROUP BY n.locale, p.type`,
+        ),
+      ])
+    })
+
+    /**
+     * A record of the run, kept.
+     *
+     * Written to R2 rather than logged because the interesting question is asked
+     * weeks later — "when did Thai coverage jump, and what did it" — and logs are
+     * gone by then. It is also the only place a refresh that quietly found nothing
+     * for six weeks would be visible.
+     */
+    const report = { at: new Date().toISOString(), locales, checked: targets.length, added }
+    await step.do("record what happened", async () => {
+      await this.env.ARCHIVE.put(`refresh/${report.at}.json`, JSON.stringify(report))
+    })
+
+    return report
+  }
+}

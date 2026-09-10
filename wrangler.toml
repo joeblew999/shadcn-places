@@ -22,6 +22,28 @@ database_name = "places"
 # with an obvious one.
 database_id = "da9ec12f-c128-45c9-9fbd-cf3a534f85ca"
 
+# The names refresh, weekly.
+#
+# A Workflow rather than a cron handler because it will fail partway — Wikidata
+# rate-limits and batches time out, both of which happened while building it. A
+# step retries on its own and the instance resumes, so a stumble at batch 200 of
+# 279 does not re-fetch the first 199.
+[[workflows]]
+name = "refresh-names"
+binding = "REFRESH"
+class_name = "RefreshNames"
+
+# Sunday, early. Nothing about this is urgent and the endpoints it leans on are
+# other people's volunteer infrastructure — off-peak is simple politeness.
+[triggers]
+crons = ["17 3 * * SUN"]
+
+# Where each run's report is kept. The interesting question is asked weeks later —
+# "when did Thai coverage jump, and what did it" — and logs are gone by then.
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "shadcn-places-archive"
+
 [observability]
 enabled = true
 

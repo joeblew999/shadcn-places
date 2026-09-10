@@ -29,9 +29,20 @@ import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
  */
 import SPEAKERS from "./api/speakers.json"
 
+/**
+ * Re-exported so the Workflow class is part of this Worker's bundle.
+ *
+ * A `[[workflows]]` binding names a class the deploy must be able to find; if it
+ * is only defined in another module and never referenced, the deploy fails with
+ * an error about a missing class rather than about a missing import.
+ */
+export { RefreshNames } from "./refresh.ts"
+
 interface Env {
   DB: D1Database
   REGISTRY: Fetcher
+  REFRESH: Workflow
+  ARCHIVE: R2Bucket
 }
 
 const os = implement(contract).$context<{ env: Env }>()
