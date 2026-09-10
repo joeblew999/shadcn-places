@@ -26,6 +26,17 @@ export interface Source {
   /** Why it is here, and what it is NOT good for. */
   note: string
   /**
+   * The exact wording the licence requires, and what the check looks for.
+   *
+   * The check used to search for a fragment of the source id, which passed for
+   * the wrong reason and then failed for the wrong reason: crediting
+   * "© OpenStreetMap contributors" — the precise form ODbL asks for — did not
+   * satisfy a test looking for the string "osm". An id is an internal name; a
+   * credit is a promise to somebody else, and the two should not be confused by
+   * the thing that verifies the promise.
+   */
+  credit?: string
+  /**
    * Share-alike sources oblige us to publish what we derive. Marked so the repo
    * check can assert the derived rows are actually committed, rather than the
    * ETL being published while the database it produces is not.
@@ -38,6 +49,7 @@ export const SOURCES: readonly Source[] = [
     id: "cldr",
     licence: "Unicode",
     weight: "nothing — it is in the runtime",
+    credit: "CLDR",
     note: "Country names in every locale ICU carries, via Intl.DisplayNames. Complete, and stops at country level: CLDR's subdivision data is English-only, three entries in every other locale.",
   },
   {
@@ -45,6 +57,7 @@ export const SOURCES: readonly Source[] = [
     licence: "CC BY 4.0",
     weight: "3MB",
     url: "https://download.geonames.org/export/dump/cities15000.zip",
+    credit: "GeoNames",
     note: "The city inventory: which places exist, their romanised pivot, coordinates, population. Not a translation source — cross-language coverage collapses below 100k people.",
   },
   {
@@ -52,6 +65,7 @@ export const SOURCES: readonly Source[] = [
     licence: "CC BY 4.0",
     weight: "150KB",
     url: "https://download.geonames.org/export/dump/admin1CodesASCII.txt",
+    credit: "GeoNames",
     note: "3,865 first-level subdivisions worldwide, English/ASCII.",
   },
   {
@@ -59,6 +73,7 @@ export const SOURCES: readonly Source[] = [
     licence: "CC BY 4.0",
     weight: "193MB zipped, ~900MB expanded",
     url: "https://download.geonames.org/export/dump/alternateNames.zip",
+    credit: "GeoNames",
     note: "Every language in one file, which is why extraction keeps them all: filtering would be extra work, not less. Also carries pseudo-languages — `link`, `unlc`, `wkdt` — which are not languages and must be excluded from counts. `wkdt` is the Wikidata ID, a second join key.",
   },
   {
@@ -67,10 +82,23 @@ export const SOURCES: readonly Source[] = [
     shareAlike: true,
     weight: "44MB",
     url: "https://raw.githubusercontent.com/dr5hn/countries-states-cities-database/master/json/states.json",
+    credit: "dr5hn",
     note:
       "5,308 subdivisions with translations in 19 languages at 100%, plus `native` at 100%. The best subdivision source measured. Its cities carry no translations at all despite the columns existing. " +
       "Its translations are machine-produced and occasionally translate a place name as the common noun it collides with: Brazil's state of Acre is `エーカー` in Japanese and `فدان` in Arabic — both the unit of area. California and England are correct in every language checked, so this is a tail rather than a pattern, " +
       "but it is why `kind: translated` here means 'a source called this a translation' and never 'a human has read it'. Four subdivision ids also appear twice (French overseas territories); the merge keeps the first and counts the rest.",
+  },
+  {
+    id: "osm-subdivisions",
+    licence: "ODbL-1.0",
+    shareAlike: true,
+    weight: "3MB, one Overpass query",
+    url: "https://overpass-api.de/api/interpreter",
+    credit: "OpenStreetMap",
+    note:
+      "OpenStreetMap admin relations carrying an ISO 3166-2 code — 4,373 of them, which is most of the world's first-level subdivisions. " +
+      "Added because it covers precisely the languages dr5hn does not: th, vi, id, sw, he, el, bn, ms. Where dr5hn has a language OSM rarely beats it, so this fills rather than competes. " +
+      "The join is exact and needs no matching: OSM's ISO3166-2 tag *is* our subdivision id. Same ODbL terms as dr5hn, so it adds no new obligation.",
   },
   {
     id: "overrides",
@@ -81,6 +109,7 @@ export const SOURCES: readonly Source[] = [
   {
     id: "wikidata",
     licence: "CC0",
+    credit: "Wikidata",
     weight: "nothing to download, minutes of SPARQL",
     note: "The only real cross-language city source: 84% ja and 89% ru for cities of 15k-100k, where GeoNames manages 7% and 20%. Joined on P1566, the GeoNames ID. Queried per language, so it is the one source with a language policy of its own.",
   },

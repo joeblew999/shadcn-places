@@ -24,6 +24,7 @@ statements because they are separate things.
 
 Data credits: [GeoNames](https://www.geonames.org) (CC BY 4.0),
 [dr5hn/countries-states-cities-database](https://github.com/dr5hn/countries-states-cities-database)
+(ODbL-1.0), **© [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors**
 (ODbL-1.0), [Wikidata](https://www.wikidata.org) (CC0), and
 [CLDR](https://cldr.unicode.org) (Unicode).
 

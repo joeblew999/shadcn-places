@@ -52,6 +52,37 @@ async function fetchTo(url: string, path: string): Promise<number> {
   return statSync(path).size
 }
 
+/**
+ * OpenStreetMap, through Overpass, in one query rather than 250.
+ *
+ * Asking for every relation that carries an ISO 3166-2 code returns the world's
+ * first-level subdivisions in a single request — about 3MB — because that tag is
+ * rare enough to be selective and common enough to be near-complete. Per-country
+ * queries would be politer to nobody and 250 times slower.
+ *
+ * POSTed rather than GETed: the query is long enough that some proxies truncate
+ * it in a URL, and Overpass documents POST as the form for anything non-trivial.
+ */
+async function fetchOverpass(path: string): Promise<number> {
+  const query = `[out:json][timeout:200];
+    relation["ISO3166-2"]["admin_level"~"^(3|4|5|6)$"];
+    out tags;`
+  const res = await fetch("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      // Overpass asks for a contactable agent and throttles anonymous traffic.
+      "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places)",
+    },
+    body: new URLSearchParams({ data: query }),
+    signal: AbortSignal.timeout(240_000),
+  })
+  if (!res.ok || !res.body) throw new Error(`overpass → HTTP ${res.status}`)
+  const out = createWriteStream(path)
+  await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), out)
+  return statSync(path).size
+}
+
 export async function stage(argv: string[]): Promise<void> {
   const sample = argv.includes("--sample")
   const only = argv.filter((a) => !a.startsWith("--"))
@@ -74,14 +105,14 @@ export async function stage(argv: string[]): Promise<void> {
   console.log()
 
   for (const s of wanted) {
-    const file = join(STAGE, `${s.id}${s.url!.endsWith(".zip") ? ".zip" : s.url!.endsWith(".json") ? ".json" : ".txt"}`)
+    const file = join(STAGE, `${s.id}${s.url!.endsWith(".zip") ? ".zip" : s.url!.endsWith(".json") ? ".json" : s.id.startsWith("osm") ? ".json" : ".txt"}`)
     if (existsSync(file) && statSync(file).size > 0) {
       console.log(`  ${s.id}: already staged (${(statSync(file).size / 1048576).toFixed(1)}MB), skipping`)
       manifest[s.id] ??= { file, bytes: statSync(file).size, fetchedAt: "unknown", licence: s.licence }
       continue
     }
     process.stdout.write(`  ${s.id}: fetching … `)
-    const bytes = await fetchTo(s.url!, file)
+    const bytes = s.id === "osm-subdivisions" ? await fetchOverpass(file) : await fetchTo(s.url!, file)
     console.log(`${(bytes / 1048576).toFixed(1)}MB`)
     manifest[s.id] = { file, bytes, fetchedAt: new Date().toISOString(), licence: s.licence }
   }

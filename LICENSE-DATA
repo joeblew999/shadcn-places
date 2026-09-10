@@ -26,8 +26,14 @@ separately rather than as one.
 
   Unicode CLDR                     Unicode Licence      country and language names
   GeoNames                         CC BY 4.0            place inventory, alternate names
-  dr5hn/countries-states-cities    ODbL-1.0             subdivisions  <- the share-alike source
-  Wikidata                         CC0                  cross-language city labels
+  dr5hn/countries-states-cities    ODbL-1.0             subdivisions   <- share-alike
+  OpenStreetMap contributors       ODbL-1.0             subdivision names   <- share-alike
+  Wikidata                         CC0                  cross-language city and place labels
+
+OpenStreetMap data is © OpenStreetMap contributors, available under the Open
+Database License. It is the same licence dr5hn brings, so it adds no obligation
+this project did not already carry — but it is a separate credit and is owed
+separately.
 
 Attribution for GeoNames and dr5hn is carried in the README and in the API's
 /attribution endpoint. Every name row records the source it came from, so the

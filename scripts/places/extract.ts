@@ -172,6 +172,39 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
     }
   }
 
+  /**
+   * OpenStreetMap, joined on the code itself.
+   *
+   * OSM tags an admin relation with `ISO3166-2`, and that string *is* our
+   * subdivision id — `BR-SP` either way. No coordinates, no name similarity, no
+   * threshold to tune: either the codes match or they do not.
+   *
+   * It earns its place by covering what dr5hn does not. dr5hn has nineteen
+   * languages and none of them are Thai, Vietnamese, Indonesian, Swahili, Hebrew,
+   * Greek or Bengali; OSM has all of those at 9-29%. Where dr5hn already has a
+   * language OSM rarely improves on it, and the merge's precedence sorts that out
+   * without either source needing to know about the other.
+   */
+  const fromOsm = new Map<string, Name[]>()
+  const osm = files["osm-subdivisions"]?.file
+  if (osm) {
+    const doc = JSON.parse(readFileSync(osm, "utf8")) as { elements?: { tags?: Record<string, string> }[] }
+    for (const el of doc.elements ?? []) {
+      const code = el.tags?.["ISO3166-2"]
+      if (!code) continue
+      const id = `subdivision:${code}`
+      const names: Name[] = []
+      for (const [key, value] of Object.entries(el.tags ?? {})) {
+        if (!key.startsWith("name:") || !value) continue
+        // `name:prefix:xx` and similar are qualified variants, not plain names.
+        const locale = key.slice("name:".length)
+        if (locale.includes(":")) continue
+        names.push({ locale, value, source: "osm", kind: "translated" })
+      }
+      if (names.length) fromOsm.set(id, names)
+    }
+  }
+
   // One streamed pass, keeping every language, exactly as for cities.
   const fromGeoNames = new Map<string, Name[]>()
   const alt = files["geonames-alternates"]?.file
@@ -212,7 +245,10 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
       wikidata: (row.wikiDataId as string) || undefined,
       // dr5hn first, so its curated translation wins a tie; the merge decides the
       // rest by kind, and demotes anything identical to the pivot either way.
-      names: [...names, ...(fromGeoNames.get(id) ?? [])],
+      // dr5hn first so its curated value wins a tie, then OSM, then GeoNames. The
+      // merge decides the rest by kind and demotes anything that is really a
+      // romanisation, so the order here only settles genuine ties.
+      names: [...names, ...(fromOsm.get(id) ?? []), ...(fromGeoNames.get(id) ?? [])],
     }
   }
 }

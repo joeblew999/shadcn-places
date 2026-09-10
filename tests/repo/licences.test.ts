@@ -57,15 +57,21 @@ describe("licences", () => {
     const data = read("LICENSE-DATA")
     for (const s of SOURCES) {
       if (s.licence === "Unicode" || s.licence === "CC0") continue
-      const named = readme.includes(s.id.split("-")[0]) || data.includes(s.id.split("-")[0])
-      expect(named, `${s.id} is ${s.licence} and needs a visible credit`).toBe(true)
+      // The declared credit, not a fragment of the id. "© OpenStreetMap
+      // contributors" is what ODbL asks for and contains no "osm" at all.
+      const credit = s.credit
+      expect(credit, `${s.id} is ${s.licence} and declares no credit wording`).toBeTruthy()
+      const named = readme.includes(credit!) || data.includes(credit!)
+      expect(named, `${s.id} is ${s.licence} and "${credit}" appears in neither README nor LICENSE-DATA`).toBe(true)
     }
   })
 
   it("names the share-alike source, so nobody has to rediscover which one it is", () => {
     const shareAlike = SOURCES.filter((s) => s.shareAlike)
     expect(shareAlike.length, "no share-alike source declared — has one been added without the flag?").toBeGreaterThan(0)
-    for (const s of shareAlike) expect(read("LICENSE-DATA")).toContain(s.id.split("/")[0].split("-")[0])
+    for (const s of shareAlike) {
+      expect(read("LICENSE-DATA"), `${s.id} is share-alike and is not named in LICENSE-DATA`).toContain(s.credit!)
+    }
   })
 })
 

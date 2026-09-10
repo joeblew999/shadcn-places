@@ -118,8 +118,37 @@ export function resolve(place: Place, overrides: Overrides = {}): Resolved[] {
   return out
 }
 
+/**
+ * City names fetched from Wikidata by `places labels`, keyed by GeoNames id.
+ *
+ * Folded in here rather than in `extract` because it is the one input that
+ * arrives out of band: `extract` is a pure function of what `stage` downloaded,
+ * and a SPARQL run is neither downloaded nor pure. Reading it at merge time keeps
+ * that promise intact — `extract` can still be re-run offline — while letting a
+ * label pass improve the output without a full rebuild.
+ *
+ * Absent file means absent labels, not an error. The pipeline has to work for
+ * somebody who never runs the SPARQL step.
+ */
+function loadLabels(): Map<string, Name[]> {
+  const path = join(OUT, "city-labels.ndjson")
+  const out = new Map<string, Name[]>()
+  if (!existsSync(path)) return out
+  for (const line of readFileSync(path, "utf8").trimEnd().split("\n")) {
+    if (!line) continue
+    const { geonameId, locale, value } = JSON.parse(line) as { geonameId: string; locale: string; value: string }
+    const id = `city:${geonameId}`
+    const list = out.get(id) ?? []
+    list.push({ locale, value, source: "wikidata", kind: "translated" })
+    out.set(id, list)
+  }
+  return out
+}
+
 export async function merge(argv: string[]): Promise<void> {
   const overrides = loadOverrides()
+  const labels = loadLabels()
+  if (labels.size) console.log(`  folding in Wikidata labels for ${labels.size.toLocaleString()} cities`)
   const tiers = argv.filter((a) => !a.startsWith("--"))
   const wanted = tiers.length ? tiers : ["countries", "subdivisions", "cities"]
   for (const tier of wanted) {
@@ -144,6 +173,8 @@ export async function merge(argv: string[]): Promise<void> {
     for await (const place of records<Place>(src)) {
       if (seen.has(place.id)) { duplicates++; continue }
       seen.add(place.id)
+      const extra = labels.get(place.id)
+      if (extra) place.names.push(...extra)
       const names = resolve(place, overrides)
       if (overrides[place.id]) overridden++
       places++
