@@ -240,3 +240,40 @@ describe("the repository carries data it means to carry", () => {
     expect(large, "generated output is tracked — a .gitignore added later does not untrack").toEqual([])
   })
 })
+
+describe("the pipeline is the only writer that decides", () => {
+  /**
+   * Two writers to one database is two truths, and this had them.
+   *
+   * The scheduled refresh writes to D1 directly so readers benefit immediately.
+   * The local ETL rebuilds from `.build/` and opens with `DELETE FROM name`. For
+   * a day those were independent: the deployed database held 8,221 Thai names and
+   * the local build held 5,196, and the next `places load` would have destroyed
+   * the difference without a word.
+   *
+   * The fix is that the refresh also writes to R2 and `places pull` brings it
+   * back, so its findings pass through the same merge and precedence as every
+   * other source. This asserts the mechanism still exists, because the failure is
+   * silent — everything builds, every count looks plausible, and work is gone.
+   */
+  const src = (f: string) => readFileSync(resolve(ROOT, f), "utf8")
+
+  it("has the refresh writing its findings somewhere the ETL can read", () => {
+    const refresh = src("src/refresh.ts")
+    expect(refresh, "the refresh writes only to D1 — its work will be deleted by the next rebuild").toMatch(
+      /ARCHIVE\.put\(\s*`labels\//,
+    )
+  })
+
+  it("has a command that brings them back", () => {
+    expect(existsSync(resolve(ROOT, "scripts/places/pull.ts"))).toBe(true)
+    expect(src("scripts/places.ts")).toMatch(/pull:/)
+  })
+
+  it("folds pulled files in through the merge, not around it", () => {
+    // They must land in the directory the merge already reads, so they compete by
+    // `kind` like everything else rather than being applied on top.
+    expect(src("scripts/places/pull.ts")).toMatch(/labels/)
+    expect(src("scripts/places/merge.ts")).toMatch(/readdirSync\(dir\)/)
+  })
+})

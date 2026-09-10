@@ -163,6 +163,14 @@ export class RefreshNames extends WorkflowEntrypoint<Env, Params> {
             }`)
           if (!rows?.length) return 0
 
+          const found: { gid: string; locale: string; value: string }[] = []
+          for (const r of rows) {
+            const value = r.label?.value
+            const locale = (r.label as unknown as { "xml:lang"?: string })?.["xml:lang"]
+            const gid = r.gid?.value
+            if (value && locale && gid) found.push({ gid, locale, value })
+          }
+
           const statements = rows
             .map((r) => {
               const value = r.label?.value
@@ -186,6 +194,27 @@ export class RefreshNames extends WorkflowEntrypoint<Env, Params> {
 
           if (!statements.length) return 0
           await this.env.DB.batch(statements)
+
+          /**
+           * The same findings to R2, or this becomes a second source of truth.
+           *
+           * Measured before this existed: the deployed database held 8,221 Thai
+           * names from Wikidata and the local build held 5,196. The Workflow had
+           * found 3,025 that existed nowhere else — and `places load` opens with
+           * `DELETE FROM name`, so the next local rebuild would have deleted every
+           * one of them without a word.
+           *
+           * Writing them where the ETL can read them makes the refresh a
+           * *contributor* to the pipeline rather than a fork of it. `places pull`
+           * brings them down, the merge folds them in through the same precedence
+           * as every other source, and a rebuild carries them forward instead of
+           * undoing them.
+           */
+          const ndjson = found
+            .map((f) => JSON.stringify({ placeId: `city:${f.gid}`, locale: f.locale, value: f.value, source: "wikidata" }))
+            .join("\n")
+          await this.env.ARCHIVE.put(`labels/refresh-${event.instanceId}-${i}.ndjson`, ndjson + "\n")
+
           return statements.length
         },
       )

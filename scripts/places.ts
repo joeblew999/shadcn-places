@@ -22,6 +22,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "extract [countries|subdivisions|cities]   stream staged sources into .build/*.ndjson — no network",
     run: async (argv) => (await import("./places/extract.ts")).extract(argv),
   },
+  pull: {
+    help: "pull [--refresh]              bring the scheduled refresh's findings back from R2",
+    run: async (argv) => (await import("./places/pull.ts")).pull(argv),
+  },
   merge: {
     help: "merge                         resolve names per (place, locale) by kind precedence",
     run: async (argv) => (await import("./places/merge.ts")).merge(argv),
