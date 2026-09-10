@@ -17,7 +17,8 @@
  * having no `.build/`.
  */
 
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { gunzipSync } from "node:zlib"
 import { resolve } from "node:path"
 import { describe, it, expect } from "vitest"
 import { records } from "../../scripts/lib/ndjson.ts"
@@ -107,4 +108,31 @@ describe.skipIf(!have("countries"))("names are honest", () => {
       }
     }
   })
+})
+
+describe.skipIf(!have("countries"))("the published database matches what was built", () => {
+  /**
+   * `data/` drifted once already: the country filter removed 23 deprecated
+   * aliases, the service was reloaded, and the gzipped artefact stayed at 280
+   * rows for an hour. Nothing failed. The repo claimed to publish the database
+   * it serves and published a previous one — which is a licence problem wearing
+   * the costume of a stale file.
+   *
+   * Compared by row count rather than by hash: the build is not byte-reproducible
+   * (CLDR moves with the runtime's ICU) and a hash check would fail for reasons
+   * nobody could act on. A count catches the failure that actually happens, which
+   * is forgetting to re-export.
+   */
+  for (const tier of ["countries", "subdivisions", "cities"] as const) {
+    it.skipIf(!have(tier))(`${tier} is exported at the built size`, async () => {
+      const builtRows = (await load(tier)).length
+      const published = gunzipSync(readFileSync(resolve(ROOT, `data/${tier}.ndjson.gz`)))
+        .toString("utf8").trimEnd().split("\n").length
+      expect(
+        published,
+        `data/${tier}.ndjson.gz has ${published} rows but the build has ${builtRows}. ` +
+          `Re-export: gzip -9 -c .build/${tier}.merged.ndjson > data/${tier}.ndjson.gz`,
+      ).toBe(builtRows)
+    })
+  }
 })
