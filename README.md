@@ -45,17 +45,31 @@ Every name carries a **`kind`** — `translated`, `native`, `romanised`,
 `transliterated` — and the **source** it came from. So you always know whether
 you are reading a real translation or a fallback, and so do we.
 
+## Live
+
+**https://shadcn-places.gedw99.workers.dev**
+
+```bash
+curl "https://shadcn-places.gedw99.workers.dev/api/countries?locale=th"
+curl "https://shadcn-places.gedw99.workers.dev/api/countries/BR/subdivisions?locale=ja"
+curl "https://shadcn-places.gedw99.workers.dev/api/countries/BR/cities?q=our&locale=ja"
+curl "https://shadcn-places.gedw99.workers.dev/api/coverage/th"
+```
+
+That last one is the honest endpoint: ask it what a language actually has before
+you depend on it. Thai today is 280/280 countries and nothing below.
+
 ## Quick start
 
 ```bash
 # the picker, into any shadcn project
-bunx shadcn@latest add https://places.example.com/r/places-picker.json
+bunx shadcn@latest add https://shadcn-places.gedw99.workers.dev/r/places-picker.json
 ```
 
 ```ts
 // the typed client, from a Worker on the same account
 import { createPlacesClient } from "shadcn-places/client"
-const places = createPlacesClient({ fetch: env.PLACES.fetch })
+const places = createPlacesClient({ fetch: env.PLACES.fetch }) // or a URL
 
 await places.countries.list({ locale: "sw" })
 await places.subdivisions.list({ country: "BR", locale: "ja" })

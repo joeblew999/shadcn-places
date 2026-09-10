@@ -17,7 +17,7 @@ database_name = "places"
 # Filled by `wrangler d1 create places`. Left empty rather than faked, because a
 # wrong id fails at deploy time with a confusing error instead of at setup time
 # with an obvious one.
-database_id = ""
+database_id = "da9ec12f-c128-45c9-9fbd-cf3a534f85ca"
 
 [observability]
 enabled = true

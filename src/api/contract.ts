@@ -51,15 +51,26 @@ const Place = z.object({
   population: z.number().nullable(),
 })
 
+/**
+ * Every method is also a GET at a readable path.
+ *
+ * oRPC will serve these over its own RPC protocol regardless, which is what the
+ * typed client speaks. The explicit routes are for everyone else: a public API
+ * that cannot be opened in a browser or curled without an envelope is a public
+ * API people bounce off. `GET /api/countries?locale=th` is the version somebody
+ * can try before deciding whether to depend on it.
+ */
 export const contract = {
   countries: {
     list: oc
+      .route({ method: "GET", path: "/countries" })
       .input(z.object({ locale: Locale.default("en") }))
       .output(z.object({ places: z.array(Place) })),
   },
 
   subdivisions: {
     list: oc
+      .route({ method: "GET", path: "/countries/{country}/subdivisions" })
       .input(
         z.object({
           /** ISO-3166-1 alpha-2. Required: it is the index this query rides on. */
@@ -81,6 +92,7 @@ export const contract = {
      * beginning of the place they are looking for.
      */
     search: oc
+      .route({ method: "GET", path: "/countries/{country}/cities" })
       .input(
         z.object({
           country: z.string().length(2),
@@ -94,6 +106,7 @@ export const contract = {
 
     /** One city by id, for rendering a stored reference without a search. */
     get: oc
+      .route({ method: "GET", path: "/cities/{id}" })
       .input(z.object({ id: z.string(), locale: Locale.default("en") }))
       .output(z.object({ place: Place.nullable() })),
   },
@@ -106,7 +119,7 @@ export const contract = {
    * a credit nobody can find programmatically is a credit that will not appear.
    */
   attribution: {
-    get: oc.input(z.object({})).output(
+    get: oc.route({ method: "GET", path: "/attribution" }).input(z.object({})).output(
       z.object({
         sources: z.array(z.object({ id: z.string(), licence: z.string(), url: z.string().optional() })),
         notice: z.string(),
@@ -123,6 +136,7 @@ export const contract = {
    */
   coverage: {
     get: oc
+      .route({ method: "GET", path: "/coverage/{locale}" })
       .input(z.object({ locale: Locale }))
       .output(
         z.object({

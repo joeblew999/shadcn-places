@@ -22,6 +22,7 @@ import { SOURCES } from "../scripts/lib/sources.ts"
 
 interface Env {
   DB: D1Database
+  REGISTRY: Fetcher
 }
 
 const os = implement(contract).$context<{ env: Env }>()
@@ -29,22 +30,16 @@ const os = implement(contract).$context<{ env: Env }>()
 /**
  * Resolve one name per place for the requested locale, in one query.
  *
- * The join is a LEFT JOIN so a place with no name in this locale still returns —
- * with its pivot, and `kind` saying `romanised`. An INNER JOIN would silently
+ * The join is LEFT, not INNER, so a place with no name in this locale still
+ * returns — with its pivot, and `kind` saying `romanised`. INNER would silently
  * drop places from the list for readers whose language is thin, which is the
- * worst possible failure: the picker would show fewer countries in Swahili than
+ * worst available failure: the picker would show fewer countries in Swahili than
  * in French and nothing would say why.
  *
- * `locale = ?1 OR locale = ?2` handles negotiation cheaply: a caller asking for
- * `pt-BR` gets `pt-BR` if a source had it and `pt` otherwise, without a second
- * round trip. Ordering by length descending puts the more specific tag first.
+ * `locale IN (?, ?)` handles negotiation cheaply: a caller asking for `pt-BR`
+ * gets `pt-BR` where a source had it and `pt` otherwise, without a second round
+ * trip and without a negotiation library.
  */
-const NAME_JOIN = `
-  LEFT JOIN name n
-    ON n.place_id = p.id
-   AND n.locale IN (?locale, ?base)
-`
-
 interface Row {
   id: string
   type: "country" | "subdivision" | "city"
@@ -203,9 +198,28 @@ export default {
     const viaHttp = await openapi.handle(request, { prefix: "/api", context: { env } })
     if (viaHttp.matched) return viaHttp.response
 
-    // The registry item, so `shadcn add https://…/r/places-picker.json` works.
+    /**
+     * The registry, at the URL the install command actually uses.
+     *
+     * `shadcn add https://…/r/places-picker.json` is the documented shape, and the
+     * assets binding serves the `registry/` directory from the root — so the
+     * prefix has to be stripped before the lookup. Getting this wrong is a 404 on
+     * the one URL in the README that a stranger will try first, and it does not
+     * fail in any build.
+     */
     if (url.pathname.startsWith("/r/")) {
-      return new Response("registry items are served as static assets; see wrangler.toml", { status: 404 })
+      const asset = new URL(url)
+      asset.pathname = url.pathname.slice("/r".length)
+      const found = await env.REGISTRY.fetch(new Request(asset, request))
+      if (found.status !== 404) {
+        // shadcn's CLI fetches this cross-origin from whatever project is
+        // installing it, so it has to be readable from anywhere.
+        const headers = new Headers(found.headers)
+        headers.set("access-control-allow-origin", "*")
+        headers.set("content-type", "application/json")
+        return new Response(found.body, { status: found.status, headers })
+      }
+      return Response.json({ error: "no such registry item", tried: asset.pathname }, { status: 404 })
     }
 
     return Response.json(
