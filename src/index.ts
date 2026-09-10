@@ -185,18 +185,44 @@ const router = os.router({
 const rpc = new RPCHandler(router)
 const openapi = new OpenAPIHandler(router)
 
+/**
+ * Read-only, public, and therefore callable from a browser.
+ *
+ * A public API that a browser cannot call is a public API for servers only, and
+ * half the point of shipping a picker component is that somebody's front end can
+ * talk to this directly. The demo found it the honest way: served from localhost
+ * it was refused by its own deployed service.
+ *
+ * `*` is the right answer here rather than a lax one. Every endpoint is a read of
+ * data that is published under an open licence anyway, there are no credentials,
+ * no cookies and nothing user-specific to leak — so an origin allowlist would
+ * protect nothing and would break exactly the people this is for.
+ */
+const cors = (res: Response): Response => {
+  const headers = new Headers(res.headers)
+  headers.set("access-control-allow-origin", "*")
+  headers.set("access-control-allow-methods", "GET, POST, OPTIONS")
+  headers.set("access-control-allow-headers", "content-type")
+  headers.set("access-control-max-age", "86400")
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
 
+    // Preflight. Answered before anything else so a POST from a browser does not
+    // depend on the router recognising OPTIONS.
+    if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }))
+
     // The RPC transport, which is what the typed client speaks — over a service
     // binding or over the public internet, identically.
     const viaRpc = await rpc.handle(request, { prefix: "/rpc", context: { env } })
-    if (viaRpc.matched) return viaRpc.response
+    if (viaRpc.matched) return cors(viaRpc.response)
 
     // The same router as plain HTTP, for callers that are not TypeScript.
     const viaHttp = await openapi.handle(request, { prefix: "/api", context: { env } })
-    if (viaHttp.matched) return viaHttp.response
+    if (viaHttp.matched) return cors(viaHttp.response)
 
     /**
      * The registry, at the URL the install command actually uses.

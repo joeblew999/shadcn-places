@@ -92,9 +92,12 @@
 </main>
 
 <script type="module">
-const API = location.hostname === "localhost" || location.protocol === "file:"
-  ? "https://shadcn-places.gedw99.workers.dev"
-  : location.origin
+// Same origin whenever there is one. The first version treated localhost as
+// "use the deployed service", which is backwards twice over: it ignores the
+// local Worker you started in order to look at local data, and the deployed
+// service then refuses the request as cross-origin. Only file:// has no origin
+// worth using.
+const API = location.protocol === "file:" ? "https://shadcn-places.gedw99.workers.dev" : location.origin
 document.getElementById("origin").textContent = API
 
 // Deliberately mixed scripts: the interesting cases are the ones where a Latin
