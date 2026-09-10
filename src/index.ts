@@ -17,6 +17,8 @@
 import { implement } from "@orpc/server"
 import { RPCHandler } from "@orpc/server/fetch"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
+import { OpenAPIGenerator } from "@orpc/openapi"
+import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4"
 import { contract } from "./api/contract.ts"
 import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
 /**
@@ -343,6 +345,19 @@ const router = os.router({
   },
 })
 
+/**
+ * The OpenAPI document, generated from the same contract the Worker serves.
+ *
+ * The README has been telling people "there is an OpenAPI document for anything
+ * that is not TypeScript" while `/openapi.json` fell through to the service's
+ * root document and answered 200 with something that is not a spec. A caller
+ * pointing a generator at it would get nothing, from a URL that looked fine.
+ *
+ * Generated rather than written, so it cannot drift: a contract change is a spec
+ * change, and there is no second document to forget.
+ */
+const openapiSpec = new OpenAPIGenerator({ converters: [new ZodToJsonSchemaConverter()] })
+
 const rpc = new RPCHandler(router)
 const openapi = new OpenAPIHandler(router)
 
@@ -405,6 +420,40 @@ export default {
      * Found by a test asserting that an unscoped city search is refused. It *is*
      * refused, by there being no such route; the 200 was the problem.
      */
+    /**
+     * The spec, and a page to read it on.
+     *
+     * Scalar is a script tag pointed at the document — no build step, no bundled
+     * UI, and it renders the same spec a code generator would consume. A public
+     * API whose only documentation is a README is one people integrate against by
+     * guessing.
+     */
+    if (url.pathname === "/openapi.json") {
+      const spec = await openapiSpec.generate(contract, {
+        info: {
+          title: "shadcn-places",
+          version: "0.1.0",
+          description:
+            "Countries, states and cities in every language the open data has. " +
+            "Code MIT, data ODbL-1.0 — calling this API imposes nothing on you; redistributing the database does.",
+        },
+        servers: [{ url: `${url.origin}/api` }],
+      })
+      return cors(Response.json(spec))
+    }
+
+    if (url.pathname === "/docs") {
+      return cors(
+        new Response(
+          `<!doctype html><html><head><meta charset="utf-8"><title>shadcn-places API</title>
+           <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+           <body><script id="api-reference" data-url="/openapi.json"></script>
+           <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script></body></html>`,
+          { headers: { "content-type": "text/html; charset=utf-8" } },
+        ),
+      )
+    }
+
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/rpc/")) {
       return cors(
         Response.json(
@@ -414,11 +463,11 @@ export default {
             // A city search must be scoped by a country: unscoped is a scan of
             // every row, per keystroke, and D1 bills what it reads.
             endpoints: [
-              "GET /api/countries",
-              "GET /api/countries/{country}/subdivisions",
-              "GET /api/countries/{country}/cities?q=",
-              "GET /api/cities/{id}",
-              "GET /api/coverage/{locale}",
+              "GET /api/countries?locale=",
+              "GET /api/subdivisions?country=",
+              "GET /api/cities?country=&q=",
+              "GET /api/city?id=",
+              "GET /api/coverage?locale=",
               "GET /api/locales",
               "GET /api/matrix",
               "GET /api/attribution",
@@ -462,6 +511,8 @@ export default {
         rpc: "/rpc",
         openapi: "/api",
         registry: "/r/places-picker.json",
+        openapi: "/openapi.json",
+        docs: "/docs",
         licence: { code: "MIT", data: "ODbL-1.0", notice: "/api/attribution/get" },
       },
       { status: 200 },

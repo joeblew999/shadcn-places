@@ -89,7 +89,7 @@ describe("the cascade", () => {
   })
 
   it.skipIf(!up)("returns a country's subdivisions", async () => {
-    const { places } = (await (await api("/countries/TH/subdivisions?locale=th")).json()) as {
+    const { places } = (await (await api("/subdivisions?country=TH&locale=th")).json()) as {
       places: { name: string; kind: string }[]
     }
     expect(places.length).toBe(78)
@@ -101,7 +101,7 @@ describe("the cascade", () => {
     // Ordering by the resolved name alone put every Latin fallback above every
     // Thai one, because Latin sorts lower. The data was right and the order
     // buried it below the fold.
-    const { places } = (await (await api("/countries/TH/subdivisions?locale=th")).json()) as {
+    const { places } = (await (await api("/subdivisions?country=TH&locale=th")).json()) as {
       places: { kind: string }[]
     }
     const firstFallback = places.findIndex((p) => p.kind === "romanised")
@@ -110,7 +110,7 @@ describe("the cascade", () => {
   })
 
   it.skipIf(!up)("searches cities by prefix, scoped to a country", async () => {
-    const { places } = (await (await api("/countries/TH/cities?q=chi&locale=th&limit=5")).json()) as {
+    const { places } = (await (await api("/cities?country=TH&q=chi&locale=th&limit=5")).json()) as {
       places: { name: string; population: number | null }[]
     }
     expect(places.length).toBeGreaterThan(0)
@@ -120,7 +120,7 @@ describe("the cascade", () => {
   it.skipIf(!up)("accepts limit from a query string", async () => {
     // `limit` arrives as the string "3". The RPC transport sends real numbers, so
     // this failed only over HTTP — the half a stranger uses first.
-    const res = await api("/countries/BR/cities?q=sao&locale=pt&limit=3")
+    const res = await api("/cities?country=BR&q=sao&locale=pt&limit=3")
     expect(res.status).toBe(200)
     const { places } = (await res.json()) as { places: unknown[] }
     expect(places.length).toBeLessThanOrEqual(3)
@@ -133,7 +133,7 @@ describe("the cascade", () => {
     // It was already refused — there is no such route — but the response was 200
     // with the service's own root document, so a mistyped path parsed as success.
     // Asserting the status found that; asserting only "no places" would not have.
-    const res = await api("/cities?q=paris")
+    const res = await api("/nope?q=paris")
     expect(res.status).toBe(404)
     const body = (await res.json()) as { places?: unknown[]; error?: string }
     expect(body.places).toBeUndefined()
@@ -150,7 +150,7 @@ describe("the cascade", () => {
   it.skipIf(!up)("never returns an empty name", async () => {
     // The promise the pivot exists to keep: ask in a language with almost nothing
     // and still get something renderable.
-    const { places } = (await (await api("/countries/BR/subdivisions?locale=yue")).json()) as {
+    const { places } = (await (await api("/subdivisions?country=BR&locale=yue")).json()) as {
       places: { name: string }[]
     }
     expect(places.length).toBeGreaterThan(0)
@@ -160,9 +160,9 @@ describe("the cascade", () => {
 
 describe("it says what it knows", () => {
   it.skipIf(!up)("reports coverage as two numbers and which to read", async () => {
-    const th = (await (await api("/coverage/th")).json()) as { latinScript: boolean; tiers: unknown[] }
+    const th = (await (await api("/coverage?locale=th")).json()) as { latinScript: boolean; tiers: unknown[] }
     expect(th.latinScript).toBe(false)
-    const vi = (await (await api("/coverage/vi")).json()) as { latinScript: boolean }
+    const vi = (await (await api("/coverage?locale=vi")).json()) as { latinScript: boolean }
     expect(vi.latinScript).toBe(true)
   })
 
@@ -197,5 +197,54 @@ describe("it says what it knows", () => {
     expect(notice).toMatch(/GeoNames/)
     expect(notice).toMatch(/ODbL/i)
     expect(sources.some((s) => s.licence === "CC BY 4.0")).toBe(true)
+  })
+})
+
+describe("the typed client the README promises", () => {
+  /**
+   * It did not exist for a day.
+   *
+   * `import { createPlacesClient } from "shadcn-places/client"` was in the
+   * quick-start with no `src/client.ts` and no `exports` field behind it — the
+   * same failure as the registry item, one layer up: documented, never built,
+   * never imported, nothing red.
+   *
+   * The pattern is now unmistakable. Three things this project told people to
+   * use were broken in the same way, and each was found by a person trying it
+   * rather than by a test. So the client is exercised here, against the running
+   * service, over the RPC transport a consumer would actually use.
+   */
+  it.skipIf(!up)("lists countries over RPC, with types", async () => {
+    const { createPlacesClient } = await import("../../src/client.ts")
+    const places = createPlacesClient({ url: BASE })
+    const { places: countries } = await places.countries.list({ locale: "ja" })
+    expect(countries.length).toBeGreaterThan(200)
+    expect(countries.some((c) => /[ぁ-んァ-ヶ一-龠]/.test(c.name))).toBe(true)
+  })
+
+  it.skipIf(!up)("accepts a custom fetch, which is how a service binding works", async () => {
+    const { createPlacesClient } = await import("../../src/client.ts")
+    let sawRequest = false
+    const places = createPlacesClient({
+      url: BASE,
+      // env.PLACES.fetch has exactly this shape. If oRPC ever stops accepting a
+      // custom fetch, every service-binding consumer breaks and this is the test
+      // that says so.
+      fetch: (request) => { sawRequest = true; return fetch(request) },
+    })
+    const { places: subs } = await places.subdivisions.list({ country: "TH", locale: "th" })
+    expect(sawRequest, "the custom fetch was never called — service bindings would not work").toBe(true)
+    expect(subs.length).toBe(78)
+  })
+
+  it.skipIf(!up)("serves a real OpenAPI document", async () => {
+    // `/openapi.json` fell through to the service's root document and answered
+    // 200 with something that is not a spec, while the README said one existed.
+    const spec = (await (await fetch(`${BASE}/openapi.json`)).json()) as {
+      openapi?: string
+      paths?: Record<string, unknown>
+    }
+    expect(spec.openapi, "not an OpenAPI document").toMatch(/^3\./)
+    expect(Object.keys(spec.paths ?? {}).length).toBeGreaterThan(5)
   })
 })

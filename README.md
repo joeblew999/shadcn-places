@@ -73,9 +73,9 @@ Ask `/api/coverage/{locale}` rather than trusting any of this.
 
 ```bash
 curl "https://shadcn-places.gedw99.workers.dev/api/countries?locale=th"
-curl "https://shadcn-places.gedw99.workers.dev/api/countries/BR/subdivisions?locale=ja"
-curl "https://shadcn-places.gedw99.workers.dev/api/countries/BR/cities?q=our&locale=ja"
-curl "https://shadcn-places.gedw99.workers.dev/api/coverage/th"
+curl "https://shadcn-places.gedw99.workers.dev/api/subdivisions?country=BR&locale=ja"
+curl "https://shadcn-places.gedw99.workers.dev/api/cities?country=BR&q=our&locale=ja"
+curl "https://shadcn-places.gedw99.workers.dev/api/coverage?locale=th"
 ```
 
 That last one is the honest endpoint: ask it what a language actually has before
@@ -112,6 +112,17 @@ because 152,970 undifferentiated cities is a bad control, but because D1 bills
 rows *scanned*: `name LIKE '%bangkok%'` unfiltered reads every row in the table,
 per keystroke. Filtered and prefix-matched, it reads a handful. The cheap shape
 and the usable shape are the same shape.
+
+## API documentation
+
+- **[/openapi.json](https://shadcn-places.gedw99.workers.dev/openapi.json)** — generated from the contract the Worker serves, so it cannot drift from it
+- **[/docs](https://shadcn-places.gedw99.workers.dev/docs)** — the same spec, readable
+
+Every parameter is a query parameter. The paths were RESTful until
+`@orpc/openapi` turned out to be unable to generate a specification for *any*
+route with a dynamic path segment — so the choice was a prettier URL or a
+machine-readable API, and for something meant to be adopted that is not a close
+call.
 
 ## Does it actually install?
 

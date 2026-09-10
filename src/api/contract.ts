@@ -61,13 +61,29 @@ const Place = z.object({
 })
 
 /**
- * Every method is also a GET at a readable path.
+ * Every method is also a GET, and every parameter is a query parameter.
  *
- * oRPC will serve these over its own RPC protocol regardless, which is what the
+ * The paths used to be RESTful — `/countries/{country}/subdivisions` — and they
+ * had to change, which is worth recording because the reason is not taste.
+ *
+ * `@orpc/openapi` 1.15.0 cannot generate a specification for any route with a
+ * dynamic path parameter. Not for a particular schema shape: for any of them.
+ * A required string, a strict object, even oRPC's own `inputStructure: "detailed"`
+ * all fail with *"input schema must be an object with all dynamic params as
+ * required"* while the converter demonstrably emits exactly that. The routes
+ * served fine at runtime — only the spec generator refused them.
+ *
+ * So the choice was a prettier URL or a machine-readable API, and for a service
+ * whose whole argument is that anyone can adopt it, that is not a close call. A
+ * public API with no spec is one people integrate against by guessing.
+ *
+ * `/api/subdivisions?country=BR` is also, on reflection, easier to construct by
+ * hand than the path form, and it makes every endpoint the same shape.
+ *
+ * oRPC serves all of this over its own RPC protocol regardless, which is what the
  * typed client speaks. The explicit routes are for everyone else: a public API
- * that cannot be opened in a browser or curled without an envelope is a public
- * API people bounce off. `GET /api/countries?locale=th` is the version somebody
- * can try before deciding whether to depend on it.
+ * that cannot be opened in a browser or curled without an envelope is one people
+ * bounce off.
  */
 export const contract = {
   countries: {
@@ -79,7 +95,7 @@ export const contract = {
 
   subdivisions: {
     list: oc
-      .route({ method: "GET", path: "/countries/{country}/subdivisions" })
+      .route({ method: "GET", path: "/subdivisions" })
       .input(
         z.object({
           /** ISO-3166-1 alpha-2. Required: it is the index this query rides on. */
@@ -101,7 +117,7 @@ export const contract = {
      * beginning of the place they are looking for.
      */
     search: oc
-      .route({ method: "GET", path: "/countries/{country}/cities" })
+      .route({ method: "GET", path: "/cities" })
       .input(
         z.object({
           country: z.string().length(2),
@@ -118,7 +134,7 @@ export const contract = {
 
     /** One city by id, for rendering a stored reference without a search. */
     get: oc
-      .route({ method: "GET", path: "/cities/{id}" })
+      .route({ method: "GET", path: "/city" })
       .input(z.object({ id: z.string(), locale: Locale.default("en") }))
       .output(z.object({ place: Place.nullable() })),
   },
@@ -241,7 +257,7 @@ export const contract = {
    */
   coverage: {
     get: oc
-      .route({ method: "GET", path: "/coverage/{locale}" })
+      .route({ method: "GET", path: "/coverage" })
       .input(z.object({ locale: Locale }))
       .output(
         z.object({

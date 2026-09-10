@@ -16,6 +16,7 @@
     "@orpc/contract": "^1.15.0",
     "@orpc/openapi": "^1.15.0",
     "@orpc/server": "^1.15.0",
+    "@orpc/zod": "^1.15.0",
     "@types/node": "^26.4.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
@@ -23,5 +24,23 @@
     "vitest": "^4.0.18",
     "wrangler": "^4.130.0",
     "zod": "^4.5.4"
+  },
+  "exports": {
+    ".": "./src/client.ts",
+    "./client": "./src/client.ts",
+    "./contract": "./src/api/contract.ts"
+  },
+  "files": [
+    "src",
+    "data",
+    "registry.json",
+    "LICENSE",
+    "LICENSE-DATA",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@orpc/client": ">=1.15.0",
+    "@orpc/contract": ">=1.15.0",
+    "zod": ">=4"
   }
 }
