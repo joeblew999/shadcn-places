@@ -8,6 +8,13 @@
       "when": 1789001775921,
       "tag": "0000_special_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789008420698,
+      "tag": "0001_normal_madrox",
+      "breakpoints": true
     }
   ]
 }

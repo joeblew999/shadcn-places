@@ -58,7 +58,7 @@ export async function load(argv: string[]): Promise<void> {
    */
   // Idempotent: re-running a load must replace rather than accumulate, or a
   // refresh doubles the table and every count silently becomes wrong.
-  out.write("DELETE FROM name;\nDELETE FROM place;\n\n")
+  out.write("DELETE FROM coverage;\nDELETE FROM name;\nDELETE FROM place;\n\n")
 
   let places = 0
   let names = 0
@@ -106,6 +106,22 @@ export async function load(argv: string[]): Promise<void> {
   }
   flush("name", "place_id,locale,value,source,kind", nameRows)
 
+  /**
+   * Coverage, computed here rather than per request.
+   *
+   * One INSERT ... SELECT at load time replaces a 1.18-million-row aggregate on
+   * every call to /api/matrix and /api/locales. Written as SQL rather than
+   * computed in TypeScript so that anyone who loads these dumps into their own
+   * SQLite gets the same table without running our ETL.
+   */
+  out.write(`
+INSERT INTO coverage (locale, type, named, real)
+SELECT n.locale, p.type, COUNT(*),
+       SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END)
+  FROM name n JOIN place p ON p.id = n.place_id
+ WHERE n.locale != 'und'
+ GROUP BY n.locale, p.type;
+`)
   out.write("\n-- no COMMIT: see the note above on remote D1 and transactions\n")
   await new Promise<void>((resolve) => out.end(resolve))
 

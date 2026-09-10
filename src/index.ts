@@ -212,12 +212,11 @@ const router = os.router({
         .all<{ type: string; n: number }>()
       const byType = new Map(totals.results.map((r) => [r.type, r.n]))
 
+      // Precomputed at load time. This aggregated `name` on every request —
+      // 1.18M rows scanned, billed, per call — which is the exact mistake the
+      // city search is shaped to avoid.
       const rows = await context.env.DB.prepare(
-        `SELECT n.locale locale, p.type type,
-                SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END) real
-           FROM name n JOIN place p ON p.id = n.place_id
-          WHERE n.locale != 'und' AND n.locale NOT LIKE '%-%'
-          GROUP BY n.locale, p.type`,
+        `SELECT locale, type, real FROM coverage WHERE locale NOT LIKE '%-%'`,
       ).all<{ locale: string; type: string; real: number }>()
 
       const speakers = SPEAKERS as Record<string, { t: number; w: string[] }>
@@ -267,11 +266,7 @@ const router = os.router({
        * other reading.
        */
       const rows = await context.env.DB.prepare(
-        `SELECT n.locale locale, p.type type,
-                SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END) real
-           FROM name n JOIN place p ON p.id = n.place_id
-          WHERE n.locale != 'und'
-          GROUP BY n.locale, p.type`,
+        `SELECT locale, type, real FROM coverage`,
       ).all<{ locale: string; type: string; real: number }>()
 
       const speakers = SPEAKERS as Record<string, { t: number; w: string[] }>
@@ -312,17 +307,22 @@ const router = os.router({
        * English string — which is exactly the failure this service was built to
        * make visible, so it must not be reproduced in the endpoint that reports on it.
        */
-      const { results } = await context.env.DB.prepare(
-        `SELECT p.type AS type,
-                COUNT(*) AS total,
-                SUM(CASE WHEN n.value IS NOT NULL THEN 1 ELSE 0 END) AS named,
-                SUM(CASE WHEN n.kind IN ('translated','native') THEN 1 ELSE 0 END) AS translated
-           FROM place p
-           LEFT JOIN name n ON n.place_id = p.id AND n.locale IN (?, ?)
-          GROUP BY p.type`,
+      // Two rows per tier from the precomputed table, plus the place totals,
+      // instead of a left join across every name in the database.
+      const totals = await context.env.DB.prepare(`SELECT type, COUNT(*) n FROM place GROUP BY type`)
+        .all<{ type: string; n: number }>()
+      const cov = await context.env.DB.prepare(
+        `SELECT type, MAX(named) named, MAX(real) translated FROM coverage WHERE locale IN (?, ?) GROUP BY type`,
       )
         .bind(locale, base)
-        .all<{ type: string; total: number; named: number; translated: number }>()
+        .all<{ type: string; named: number; translated: number }>()
+      const found = new Map(cov.results.map((r) => [r.type, r]))
+      const results = totals.results.map((t) => ({
+        type: t.type,
+        total: t.n,
+        named: found.get(t.type)?.named ?? 0,
+        translated: found.get(t.type)?.translated ?? 0,
+      }))
       return {
         locale: input.locale,
         latinScript: !NON_LATIN_SCRIPT.has(input.locale) && !NON_LATIN_SCRIPT.has(base),
@@ -383,6 +383,41 @@ export default {
      * the one URL in the README that a stranger will try first, and it does not
      * fail in any build.
      */
+    /**
+     * An unmatched API path is a 404, not the service document.
+     *
+     * `/api/cities?q=paris` matched no route and fell through to the root, which
+     * answers 200 with a JSON description of the service. A caller who mistypes a
+     * path gets a success and a body that parses — the worst possible response,
+     * because their code carries on and fails somewhere else entirely.
+     *
+     * Found by a test asserting that an unscoped city search is refused. It *is*
+     * refused, by there being no such route; the 200 was the problem.
+     */
+    if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/rpc/")) {
+      return cors(
+        Response.json(
+          {
+            error: "no such endpoint",
+            path: url.pathname,
+            // A city search must be scoped by a country: unscoped is a scan of
+            // every row, per keystroke, and D1 bills what it reads.
+            endpoints: [
+              "GET /api/countries",
+              "GET /api/countries/{country}/subdivisions",
+              "GET /api/countries/{country}/cities?q=",
+              "GET /api/cities/{id}",
+              "GET /api/coverage/{locale}",
+              "GET /api/locales",
+              "GET /api/matrix",
+              "GET /api/attribution",
+            ],
+          },
+          { status: 404 },
+        ),
+      )
+    }
+
     if (url.pathname.startsWith("/r/")) {
       const asset = new URL(url)
       asset.pathname = url.pathname.slice("/r".length)

@@ -93,4 +93,32 @@ export const name = sqliteTable(
   ],
 )
 
-export const schema = { place, name }
+/**
+ * Coverage, precomputed — because reporting it was the most expensive query here.
+ *
+ * `/api/matrix` and `/api/locales` aggregated the whole `name` table on every
+ * request: 1.18 million rows scanned, 7.3 seconds, and billed every time. That is
+ * precisely the mistake the city search is shaped to avoid, committed in the
+ * endpoints whose job is to report on it.
+ *
+ * The numbers change only when the data is loaded, so they are computed then. Two
+ * thousand rows instead of a million-row scan, and the endpoints become a read of
+ * a table small enough to be free.
+ *
+ * Denormalised on purpose. It can be rebuilt from `name` in one statement, and if
+ * it is ever wrong the answer is to reload rather than to reconcile.
+ */
+export const coverage = sqliteTable(
+  "coverage",
+  {
+    locale: text("locale").notNull(),
+    type: text("type", { enum: ["country", "subdivision", "city"] }).notNull(),
+    /** Places with any name in this locale. The figure a Latin-script reader wants. */
+    named: integer("named").notNull(),
+    /** Excluding romanised fallbacks. The figure every other script wants. */
+    real: integer("real").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.locale, t.type] })],
+)
+
+export const schema = { place, name, coverage }
