@@ -14,3 +14,14 @@ dist/
 # caught by that twice already: a registry item serving an old component, and
 # data/ describing a database it was no longer exporting.
 worker-configuration.d.ts
+
+# The published database. In R2, not in git — see data/manifest.json.
+#
+# gzip is already compressed so git cannot delta it: every publish stored a fresh
+# 13.4MB forever. `.git` reached 134MB and was mostly twelve copies of
+# cities.ndjson.gz, and this repo has already had to filter-repo a 76MB blob once.
+#
+# ODbL obliges us to make the derived database available. It does not oblige us to
+# make it available in git, and a URL discharges it better — the service tests can
+# verify the download on every deploy where a commit could only be asserted.
+data/*.ndjson.gz

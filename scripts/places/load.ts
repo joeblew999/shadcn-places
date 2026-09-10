@@ -30,6 +30,7 @@ import { gunzipSync } from "node:zlib"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve as resolvePath } from "node:path"
 import { records } from "../lib/ndjson.ts"
+import { baseline } from "./baseline.ts"
 import { classifyScript, isLatinScript } from "../lib/sources.ts"
 import type { MergedPlace } from "./merge.ts"
 
@@ -49,10 +50,13 @@ const s = (v: string | null | undefined) => (v === undefined || v === null || v 
  * thing being compared.
  */
 function publishedNames(tier: string): Map<string, string> | null {
-  const path = resolvePath(import.meta.dirname, "../..", "data", `${tier}.ndjson.gz`)
-  if (!existsSync(path)) return null
+  // Through `baseline()`: the database moved to R2 and only its manifest is
+  // committed, so "the last publish" is a checksum-verified download that is
+  // cached after the first fetch rather than a file that is always there.
+  const bytes = baseline(`${tier}.ndjson.gz`)
+  if (!bytes) return null
   const out = new Map<string, string>()
-  for (const line of gunzipSync(readFileSync(path)).toString("utf8").trimEnd().split("\n")) {
+  for (const line of gunzipSync(bytes).toString("utf8").trimEnd().split("\n")) {
     if (!line) continue
     const p = JSON.parse(line) as MergedPlace
     // Order-independent so a reshuffle is not mistaken for a change.

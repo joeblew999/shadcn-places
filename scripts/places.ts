@@ -26,6 +26,18 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "aliases                       regenerate the CLDR language alias table",
     run: async (argv) => (await import("./places/aliases.ts")).aliases(argv),
   },
+  baseline: {
+    help: "baseline                      fetch the last published database, verified against the manifest",
+    run: async (argv) => {
+      const { fetchBaseline } = await import("./places/baseline.ts")
+      const manifest = await fetchBaseline()
+      if (manifest) console.log(`  baseline ${manifest.at}${manifest.sha ? ` (${manifest.sha})` : ""}, ${manifest.files.length} files verified`)
+    },
+  },
+  publish: {
+    help: "publish [--dry-run]          push the database to R2 and write data/manifest.json",
+    run: async (argv) => (await import("./places/publish.ts")).publish(argv),
+  },
   registry: {
     help: "registry                      build the served registry items, with the source inside them",
     run: async (argv) => (await import("./places/registry.ts")).registry(argv),

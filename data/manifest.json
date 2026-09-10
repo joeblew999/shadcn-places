@@ -1,0 +1,29 @@
+{
+  "at": "2026-09-10T06:32:34.187Z",
+  "sha": "4243ee9",
+  "url": "https://shadcn-places.gedw99.workers.dev/data/",
+  "licence": "ODbL-1.0",
+  "notice": "Place data from GeoNames (CC BY 4.0), dr5hn/countries-states-cities-database (ODbL-1.0), OpenStreetMap contributors (ODbL-1.0), Wikidata (CC0) and Unicode CLDR. Redistributing this database triggers ODbL share-alike. See LICENSE-DATA.",
+  "files": [
+    {
+      "name": "countries.ndjson.gz",
+      "bytes": 442201,
+      "sha256": "0adaee89c735ca6da8508596a57dad54ac71f9aedd33dae8992d39a0e8761c20"
+    },
+    {
+      "name": "subdivisions.ndjson.gz",
+      "bytes": 2297898,
+      "sha256": "fa0241cf3e499cbe7e23cafe18b7faf22a31a867618970b5ec1496e02f3474b1"
+    },
+    {
+      "name": "cities.ndjson.gz",
+      "bytes": 11295689,
+      "sha256": "68371de3f1cbd47237c02db0cfa1be520bc93af80b14e22ea17555675bbe8332"
+    },
+    {
+      "name": "history.ndjson.gz",
+      "bytes": 66375,
+      "sha256": "abb69d314edf720efd81e8bbbf6244b56dc9358c317363d86cda0ad2c85d1927"
+    }
+  ]
+}

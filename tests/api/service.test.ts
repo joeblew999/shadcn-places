@@ -16,6 +16,7 @@
  * differently under `wrangler dev`.
  */
 
+import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, it, expect } from "vitest"
@@ -38,6 +39,24 @@ const up = await fetch(BASE, { signal: AbortSignal.timeout(4000) })
   .then((r) => r.ok)
   .catch(() => false)
 if (!up) console.warn(`\n  no service at ${BASE} — these tests need: bun x wrangler dev --port 8787\n`)
+
+/**
+ * Whether we are pointed at a deployment rather than a dev server.
+ *
+ * `wrangler dev` uses *local* R2, and the published database is uploaded with
+ * `--remote`. So a handful of properties here — the ODbL artefacts being
+ * downloadable, and the registry item matching what is committed — are only
+ * meaningful against a deployment: locally the bucket is empty and the answers
+ * are correct and uninformative.
+ *
+ * Stated as a flag rather than left to fail, because a test that fails for the
+ * wrong reason gets skipped for the wrong reason. `places sync` runs this file
+ * against production after every deploy, which is where these execute.
+ */
+const deployed = up && Boolean(process.env.PLACES_URL)
+if (up && !deployed) {
+  console.warn("  (local dev: skipping the checks that need the deployed R2 bucket — set PLACES_URL to run them)")
+}
 
 
 describe("the service answers", () => {
@@ -108,6 +127,103 @@ describe("the service answers", () => {
     const res = await fetch(`${BASE}/api/countries`, { method: "OPTIONS" })
     expect(res.status).toBeLessThan(300)
     expect(res.headers.get("access-control-allow-origin")).toBe("*")
+  })
+})
+
+describe("the database this service is obliged to publish", () => {
+  /**
+   * ODbL share-alike, made testable instead of asserted.
+   *
+   * dr5hn and OpenStreetMap are ODbL-1.0. Serving an API built on them is fine;
+   * distributing the derived database obliges us to make that database available
+   * under ODbL too, and publishing the ETL that would produce it does not
+   * discharge that — the obligation is on the data.
+   *
+   * It used to be discharged by committing `data/*.ndjson.gz`, which was provable
+   * and cost 13.4MB of git history per publish, permanently, because gzip cannot
+   * be delta-compressed. `.git` reached 134MB and was mostly twelve copies of one
+   * file.
+   *
+   * ODbL says *make available*. It does not say *in git*. Moving the bytes to a
+   * URL is the better discharge precisely because of this block: a commit could
+   * only be asserted, and a URL can be checked on every deploy.
+   */
+  it.skipIf(!deployed)("serves an index that names the licence and the sources", async () => {
+    const res = await fetch(`${BASE}/data/`)
+    expect(res.status, "/data/ is not served — the ODbL artefacts are unreachable").toBe(200)
+    const index = (await res.json()) as {
+      licence: string
+      notice: string
+      files: { name: string; bytes: number; url: string }[]
+    }
+    expect(index.licence).toBe("ODbL-1.0")
+    expect(index.notice).toMatch(/OpenStreetMap/)
+    expect(index.notice).toMatch(/share-alike/i)
+    for (const tier of ["countries", "subdivisions", "cities"]) {
+      const file = index.files.find((f) => f.name === `${tier}.ndjson.gz`)
+      expect(file, `${tier} is not published`).toBeDefined()
+      expect(file!.bytes).toBeGreaterThan(1000)
+    }
+  })
+
+  it.skipIf(!deployed)("serves bytes that match the committed manifest", async () => {
+    /**
+     * The check that makes the split safe.
+     *
+     * `data/manifest.json` is committed and the bytes are not. That is only sound
+     * if the two are verified against each other — otherwise the repository
+     * records a claim about a database nobody can confirm, which is worse than
+     * the 134MB it replaced.
+     *
+     * Countries only: it is 0.4MB, and downloading eleven megabytes on every
+     * service-test run to prove the same property is a cost with no extra
+     * information in it.
+     */
+    const manifest = JSON.parse(
+      readFileSync(resolve(import.meta.dirname, "../..", "data", "manifest.json"), "utf8"),
+    ) as { files: { name: string; sha256: string }[] }
+    const entry = manifest.files.find((f) => f.name === "countries.ndjson.gz")!
+
+    const res = await fetch(`${BASE}/data/countries.ndjson.gz`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get("x-licence"), "the credit must travel with the bytes").toBe("ODbL-1.0")
+    expect(res.headers.get("x-attribution")).toMatch(/OpenStreetMap/)
+
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const digest = createHash("sha256").update(bytes).digest("hex")
+    expect(
+      digest,
+      "the published database does not match data/manifest.json — either it was " +
+        "republished without a commit, or the commit vouches for bytes nobody is serving",
+    ).toBe(entry.sha256)
+  })
+
+  it.skipIf(!deployed)("refuses to serve anything outside the published prefix", async () => {
+    /**
+     * The R2 bucket also holds the refresh's staged sources and its run reports.
+     * A key built from a path segment is how "serve one prefix" becomes "read the
+     * bucket".
+     *
+     * Percent-encoded, because that is the form that actually reaches the
+     * handler. A literal `../` is normalised away by the URL parser before the
+     * Worker sees it — the first version of this test used one, passed nothing
+     * meaningful, and would have gone on passing with the guard deleted.
+     */
+    for (const attempt of ["..%2Fstage%2Fmanifest.json", "%2E%2E%2Fstage%2Fcity-ids.txt", "stage%2Fmanifest.json"]) {
+      const res = await fetch(`${BASE}/data/${attempt}`)
+      expect(res.status, `${attempt} was not refused`).toBe(404)
+      const body = await res.text()
+      expect(body, `${attempt} returned bucket contents`).not.toMatch(/nameLinesScanned|geonames/)
+    }
+  })
+
+  it.skipIf(!deployed)("does not serve the staging area as if it were published data", async () => {
+    // `/data/../stage/x` normalises to `/stage/x`, which never reaches the R2
+    // handler at all. Worth asserting anyway: what it must never do is return
+    // something a caller could mistake for the database.
+    const res = await fetch(`${BASE}/stage/manifest.json`)
+    const body = await res.text()
+    expect(body, "the staging manifest is readable over HTTP").not.toMatch(/nameLinesScanned/)
   })
 })
 

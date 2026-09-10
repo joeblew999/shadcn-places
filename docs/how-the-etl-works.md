@@ -8,12 +8,20 @@ it is the document that was missing.
 ```
 .stage/     963 MB   other people's files, exactly as downloaded    gitignored
 .build/     230 MB   working output, always rebuildable             gitignored
-data/        14 MB   what we publish and what the API serves         COMMITTED
+data/        14 MB   the published database, cached                 gitignored
+R2           14 MB   where it actually lives, served at /data/      the ODbL artefact
+git          869 B   data/manifest.json — names, bytes, SHA-256     COMMITTED
 ```
 
-If `.stage/` and `.build/` are deleted, nothing is lost — `places stage` fetches
-them again. If `data/` is deleted, the published database is gone and the ODbL
-obligation with it.
+Nothing on disk is precious. `places stage` refetches the sources and `places
+baseline` refetches the database from R2, verifying every file against the
+committed manifest.
+
+**Git keeps the claim; R2 keeps the bytes.** The database was committed until
+2026-09-10 — 13.4MB per publish, permanently, because gzip cannot be
+delta-compressed. `.git` reached 134MB and was mostly twelve copies of one file.
+ODbL says *make available*, not *in git*, and the URL discharges it better: the
+service tests download it on every deploy and check it against the manifest.
 
 ## The pipeline splits in two, and that is the whole design
 
@@ -87,8 +95,8 @@ allowed to be greedy and duplicative, because exactly one step resolves.
   places diff     →  .build/change.json      compares against data/, BEFORE anything is written
   places load     →  .build/load.sql         a delta by default
         apply     →  D1 local, then remote   local is where a broken file is cheap
-        publish   →  data/*.ndjson.gz        the ODbL artefact and the next diff's baseline
   places history  →  data/history.ndjson.gz  when a name changed, and to what
+  places publish  →  R2 + data/manifest.json  the ODbL artefact, and the claim about it
         deploy    →  the Worker and its assets
         verify    →  the service tests, against production
 ```
@@ -146,11 +154,14 @@ into git rather than to a URL. Both are being removed. What is genuinely hard is
 the 128MB isolate against a 744MB `alternateNames.txt`: every Workflow step has to
 own a slice and hand state to the next.
 
-## Why `.build/` is not in git and `data/` is
+## Why nothing derived is in git
 
 `.build/` is derived from `.stage/` plus the label files, and both are
-reproducible. `data/` is the thing we vouch for: it is what the API serves, what
-ODbL obliges us to publish, and what the next `diff` compares against. Published
-with `gzip -n` so the same build produces the same bytes — without that, every
-sync rewrote three binary blobs with identical contents and `git status` could not
-tell a real change from a re-run.
+reproducible. `data/` is a verified cache of what R2 serves. The only committed
+artefact is `data/manifest.json` — 869 bytes of filenames, byte counts and
+SHA-256 — because that is the part that changes meaningfully and diffs as text.
+
+The database is still published with `gzip -n` so the same build produces the same
+bytes. Without it every sync produced three new binary blobs with identical
+contents, and the checksums in the manifest would change on every run while
+meaning nothing.

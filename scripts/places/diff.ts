@@ -23,6 +23,7 @@ import { gunzipSync } from "node:zlib"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve as resolvePath } from "node:path"
 import { records } from "../lib/ndjson.ts"
+import { baseline } from "./baseline.ts"
 import type { MergedPlace, Resolved } from "./merge.ts"
 
 const ROOT = resolvePath(import.meta.dirname, "../..")
@@ -40,12 +41,19 @@ const DATA = process.env.PLACES_DATA ?? join(ROOT, "data")
 
 type Snapshot = Map<string, { pivot: string; names: Map<string, Resolved> }>
 
-/** The published artefact: what we last stood behind. */
+/**
+ * The published artefact: what we last stood behind.
+ *
+ * Read through `baseline()` rather than off disk, because the database is no
+ * longer committed — it is in R2 and `data/manifest.json` records its SHA-256.
+ * A local file still wins where one exists, so pointing `PLACES_DATA` at an older
+ * release still works and the tests still run offline.
+ */
 function published(tier: string): Snapshot | null {
-  const path = join(DATA, `${tier}.ndjson.gz`)
-  if (!existsSync(path)) return null
+  const bytes = baseline(`${tier}.ndjson.gz`)
+  if (!bytes) return null
   const out: Snapshot = new Map()
-  for (const line of gunzipSync(readFileSync(path)).toString("utf8").trimEnd().split("\n")) {
+  for (const line of gunzipSync(bytes).toString("utf8").trimEnd().split("\n")) {
     if (!line) continue
     const p = JSON.parse(line) as MergedPlace
     out.set(p.id, { pivot: p.pivot, names: new Map(p.names.map((n) => [n.locale, n])) })

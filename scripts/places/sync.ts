@@ -17,7 +17,8 @@
  *   diff    against what was last published, before anything is written
  *   load    a delta by default, because a full rewrite is 81MB to change 64 rows
  *   apply   local first, then remote: local is where a broken file is cheap
- *   publish data/ re-exported, which is both the ODbL obligation and the next diff's baseline
+ *   publish the database to R2, which is the ODbL obligation, with only its
+ *           manifest committed — git keeps the claim, R2 keeps the bytes
  *   record  what this publish changed, so "when did that name move" has an answer
  *   deploy  because the registry items are assets and are stale until it happens
  *   verify  against the deployed service, because local D1 and remote D1 disagree
@@ -78,6 +79,16 @@ export async function sync(argv: string[]): Promise<void> {
    * deleting — so a week of scheduled work disappears with nothing said. This
    * ordering is the whole reason the command exists.
    */
+  /**
+   * The baseline first, because everything after it compares against something.
+   *
+   * The published database is in R2 now, so "what did we last ship" is a
+   * checksum-verified download rather than a file that is always on disk. Fetched
+   * up front so a run either has it or fails before it has written anything —
+   * rather than three steps later, halfway through a load.
+   */
+  run("fetching the last published database", places("baseline"))
+
   run("pulling the refresh's findings", places("pull"))
 
   run("merging every source by precedence", places("merge"))
@@ -143,10 +154,10 @@ export async function sync(argv: string[]): Promise<void> {
    *
    * `-n` omits both fields and makes the output a function of the input.
    */
-  run("publishing data/", [
+  run("gzipping the build", [
     "sh",
     "-c",
-    "for t in countries subdivisions cities; do gzip -9 -n -c .build/$t.merged.ndjson > data/$t.ndjson.gz; done",
+    "for t in countries subdivisions cities; do gzip -9 -n -c .build/$t.merged.ndjson > .build/$t.ndjson.gz; done",
   ])
 
   /**
@@ -162,6 +173,29 @@ export async function sync(argv: string[]): Promise<void> {
    * its own arithmetic.
    */
   run("recording what this publish changed", places("history", "--append"))
+
+  /**
+   * The database to R2, and only its manifest to git.
+   *
+   * This step used to write `data/*.ndjson.gz` and the commit that followed added
+   * 13.4MB to git history permanently — gzip cannot be delta-compressed, so every
+   * publish stored a fresh copy. `.git` reached 134MB and was mostly twelve
+   * copies of one file.
+   *
+   * ODbL obliges us to make the derived database available. It does not oblige us
+   * to make it available *in git*, and a URL discharges it better: the service
+   * tests can verify the download on every deploy, where a commit could only be
+   * asserted. Git keeps the claim — filenames, bytes, SHA-256 — and R2 keeps the
+   * bytes.
+   *
+   * Skipped with `--local-only`, because uploading is a remote act like the D1
+   * apply above it.
+   */
+  if (!skipRemote) {
+    run("publishing the database to R2", places("publish"))
+  } else {
+    console.log("\n── not publishing (--local-only): the gzips are in .build/")
+  }
 
   /**
    * Rebuild the served registry items before the checks, not after.

@@ -789,6 +789,67 @@ export default {
       )
     }
 
+    /**
+     * The published database, which is the ODbL obligation made testable.
+     *
+     * It used to live in git — 13.4MB per publish, permanently, because gzip
+     * cannot be delta-compressed. `.git` reached 134MB and was mostly twelve
+     * copies of `cities.ndjson.gz`, and this repository has already had to
+     * filter-repo a 76MB blob out of its history once.
+     *
+     * ODbL says *make available*. It does not say *in git*, and a URL discharges
+     * it better: the obligation becomes something `tests/api/service.test.ts` can
+     * verify on every deploy rather than something the README asserts.
+     *
+     * `data/manifest.json` stays committed — filenames, bytes, SHA-256 — so a
+     * checkout can prove the bytes it downloads are the bytes that commit vouched
+     * for. Git keeps the claim; R2 keeps the bytes.
+     */
+    if (url.pathname.startsWith("/data/")) {
+      const name = url.pathname.slice("/data/".length)
+      // An index, so the URL in the manifest is somewhere a person can land.
+      if (!name) {
+        const listing = await env.ARCHIVE.list({ prefix: "published/" })
+        return cors(
+          Response.json({
+            licence: "ODbL-1.0",
+            notice:
+              "Place data from GeoNames (CC BY 4.0), dr5hn/countries-states-cities-database (ODbL-1.0), " +
+              "OpenStreetMap contributors (ODbL-1.0), Wikidata (CC0) and Unicode CLDR. " +
+              "Redistributing this database triggers ODbL share-alike. See LICENSE-DATA.",
+            files: listing.objects.map((o) => ({
+              name: o.key.slice("published/".length),
+              bytes: o.size,
+              url: `${url.origin}/data/${o.key.slice("published/".length)}`,
+              uploaded: o.uploaded,
+            })),
+          }),
+        )
+      }
+      // No traversal, no listing by accident: an exact key under one prefix.
+      if (name.includes("/") || name.includes("..")) {
+        return cors(Response.json({ error: "no such file" }, { status: 404 }))
+      }
+      const object = await env.ARCHIVE.get(`published/${name}`)
+      if (!object) {
+        return cors(Response.json({ error: "no such file", tried: name }, { status: 404 }))
+      }
+      const headers = new Headers({
+        "content-type": "application/gzip",
+        "content-length": String(object.size),
+        etag: object.httpEtag,
+        // Immutable for an hour: a publish changes the bytes at the same key, so
+        // this cannot be `immutable`, but a database that changes weekly does not
+        // need to be revalidated on every download.
+        "cache-control": "public, max-age=3600",
+        // The credit travels with the bytes, because somebody who curls a URL
+        // never reads the README.
+        "x-licence": "ODbL-1.0",
+        "x-attribution": "GeoNames, dr5hn, OpenStreetMap contributors, Wikidata, Unicode CLDR",
+      })
+      return cors(new Response(object.body, { headers }))
+    }
+
     if (url.pathname.startsWith("/r/")) {
       const asset = new URL(url)
       asset.pathname = url.pathname.slice("/r".length)
@@ -825,6 +886,7 @@ export default {
         // value was never served and nothing said so. It typechecks now.
         openapi: "/api/spec.json",
         docs: "/api",
+        data: "/data/",
         licence: { code: "MIT", data: "ODbL-1.0", notice: "/api/attribution" },
       },
       { status: 200 },
