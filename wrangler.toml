@@ -1,0 +1,29 @@
+# The service. One Worker, one database, and the registry served as static assets
+# so `shadcn add https://…/r/places-picker.json` resolves without a second host.
+name = "shadcn-places"
+main = "src/index.ts"
+compatibility_date = "2026-09-10"
+compatibility_flags = ["nodejs_compat"]
+
+# The registry items are files, not routes. Served from /r/ so the install URL in
+# the README is the URL that works.
+[assets]
+directory = "registry"
+binding = "REGISTRY"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "places"
+# Filled by `wrangler d1 create places`. Left empty rather than faked, because a
+# wrong id fails at deploy time with a confusing error instead of at setup time
+# with an obvious one.
+database_id = ""
+
+[observability]
+enabled = true
+
+# Cities are 152,970 rows and the picker queries on every keystroke, so the
+# refresh job is the only thing here that needs a long CPU budget. The default
+# 30s is right for serving.
+[limits]
+cpu_ms = 30000

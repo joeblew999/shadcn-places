@@ -67,7 +67,10 @@ export const SOURCES: readonly Source[] = [
     shareAlike: true,
     weight: "44MB",
     url: "https://raw.githubusercontent.com/dr5hn/countries-states-cities-database/master/json/states.json",
-    note: "5,308 subdivisions with translations in 19 languages at 100%, plus `native` at 100%. The best subdivision source measured. Its cities carry no translations at all despite the columns existing.",
+    note:
+      "5,308 subdivisions with translations in 19 languages at 100%, plus `native` at 100%. The best subdivision source measured. Its cities carry no translations at all despite the columns existing. " +
+      "Its translations are machine-produced and occasionally translate a place name as the common noun it collides with: Brazil's state of Acre is `エーカー` in Japanese and `فدان` in Arabic — both the unit of area. California and England are correct in every language checked, so this is a tail rather than a pattern, " +
+      "but it is why `kind: translated` here means 'a source called this a translation' and never 'a human has read it'. Four subdivision ids also appear twice (French overseas territories); the merge keeps the first and counts the rest.",
   },
   {
     id: "wikidata",

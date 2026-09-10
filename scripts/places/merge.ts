@@ -77,8 +77,25 @@ export async function merge(argv: string[]): Promise<void> {
   for (const tier of wanted) {
     const src = join(OUT, `${tier}.ndjson`)
     const out = ndjsonWriter(join(OUT, `${tier}.merged.ndjson`))
-    let places = 0, kept = 0, demoted = 0
+    let places = 0, kept = 0, demoted = 0, duplicates = 0
+    /**
+     * An id may arrive twice, and that is upstream's business rather than a bug.
+     *
+     * dr5hn lists four French overseas territories — Guyane, Saint-Pierre-et-
+     * Miquelon, Saint-Barthélemy, Saint-Martin — as both French subdivisions and
+     * entries in their own right, so `subdivision:FR-973` appears twice with
+     * different rows. D1 answered with `UNIQUE constraint failed: place.id` and
+     * named none of them.
+     *
+     * First occurrence wins, and the count is printed rather than swallowed: four
+     * is upstream being reasonable about a genuinely ambiguous place, four hundred
+     * would be a source that had changed shape, and the only way to tell them
+     * apart is for the number to be visible every run.
+     */
+    const seen = new Set<string>()
     for await (const place of records<Place>(src)) {
+      if (seen.has(place.id)) { duplicates++; continue }
+      seen.add(place.id)
       const names = resolve(place)
       places++
       kept += names.length
@@ -89,7 +106,8 @@ export async function merge(argv: string[]): Promise<void> {
     const pct = kept ? Math.round((demoted / kept) * 100) : 0
     console.log(
       `  ${tier.padEnd(13)} ${String(places).padStart(7)} places  ${String(kept).padStart(8)} names  ` +
-        `${String(demoted).padStart(7)} romanised (${pct}%)`,
+        `${String(demoted).padStart(7)} romanised (${pct}%)` +
+        (duplicates ? `  ${duplicates} duplicate id(s) dropped` : ""),
     )
   }
   console.log("\n`romanised` is not a failure — for Latin-script languages it is the right answer.")

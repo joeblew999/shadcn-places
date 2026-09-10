@@ -1,0 +1,192 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "8366b90f-bda6-42f7-9218-fb1093fd9438",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "name": {
+      "name": "name",
+      "columns": {
+        "place_id": {
+          "name": "place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "name_locale_kind_idx": {
+          "name": "name_locale_kind_idx",
+          "columns": [
+            "locale",
+            "kind"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "name_place_id_place_id_fk": {
+          "name": "name_place_id_place_id_fk",
+          "tableFrom": "name",
+          "tableTo": "place",
+          "columnsFrom": [
+            "place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "name_place_id_locale_pk": {
+          "columns": [
+            "place_id",
+            "locale"
+          ],
+          "name": "name_place_id_locale_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "place": {
+      "name": "place",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pivot": {
+          "name": "pivot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "country_code": {
+          "name": "country_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lat": {
+          "name": "lat",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lon": {
+          "name": "lon",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "population": {
+          "name": "population",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "wikidata_id": {
+          "name": "wikidata_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "place_parent_idx": {
+          "name": "place_parent_idx",
+          "columns": [
+            "parent_id"
+          ],
+          "isUnique": false
+        },
+        "place_country_type_idx": {
+          "name": "place_country_type_idx",
+          "columns": [
+            "country_code",
+            "type"
+          ],
+          "isUnique": false
+        },
+        "place_prefix_idx": {
+          "name": "place_prefix_idx",
+          "columns": [
+            "country_code",
+            "type",
+            "pivot"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

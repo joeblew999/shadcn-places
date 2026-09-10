@@ -26,6 +26,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "merge                         resolve names per (place, locale) by kind precedence",
     run: async (argv) => (await import("./places/merge.ts")).merge(argv),
   },
+  load: {
+    help: "load                          write .build/load.sql for `wrangler d1 execute --file`",
+    run: async (argv) => (await import("./places/load.ts")).load(argv),
+  },
   report: {
     help: "report [locale...]            coverage per language, before adopting one",
     run: async (argv) => (await import("./places/report.ts")).report(argv),
