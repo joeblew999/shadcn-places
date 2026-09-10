@@ -113,6 +113,26 @@ rows *scanned*: `name LIKE '%bangkok%'` unfiltered reads every row in the table,
 per keystroke. Filtered and prefix-matched, it reads a handful. The cheap shape
 and the usable shape are the same shape.
 
+## Does it actually install?
+
+[`example/`](example/) is a bare consumer project whose only job is to answer that:
+
+```bash
+cd example && bun install && bun run install-picker && bun run check
+```
+
+A consumer's tsconfig, a consumer's `@/` alias, a consumer's own shadcn
+components. `src/components/` there is gitignored because it is written by
+`shadcn add` and it is the thing under test — committing it would test a file we
+wrote rather than one the installer produced.
+
+It exists because `shadcn add` silently wrote four dependencies and skipped the
+component itself for a day. Exit zero, "✔ Created 4 files". The demo worked, the
+API worked, and this repository's checks verified a path that existed *here*
+rather than the item served over the wire. A registry item is the one artefact a
+project publishes and never compiles, so the only honest test is to install it
+somewhere else.
+
 ## Development
 
 ```bash
