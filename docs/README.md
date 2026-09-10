@@ -4,6 +4,12 @@
 wrong. The README is for somebody deciding whether to use this; everything about
 *how it is built* is here.
 
+## New here?
+
+**[How the ETL works](how-the-etl-works.md)** — the mechanism, in one page, with a
+real place traced end to end. Everything else in this folder is a dated record of
+*why* a decision was made; that one is *how it runs*.
+
 ## Where things stand
 
 Every plan in this repository is resolved except one. `docs/` holds what is left;

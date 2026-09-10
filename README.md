@@ -87,8 +87,9 @@ it affects.
 
 ## Documentation
 
-Everything about how this is built, why each source was chosen, and what has gone
-wrong lives in **[docs/](docs/README.md)**. Start there.
+**[How the ETL works](docs/how-the-etl-works.md)** is the one-page mechanism, with
+a real place traced from download to published row. Everything about why each
+source was chosen and what has gone wrong lives in **[docs/](docs/README.md)**.
 
 ## Development
 
