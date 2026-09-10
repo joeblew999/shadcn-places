@@ -49,6 +49,18 @@ export interface MergedPlace extends Omit<Place, "names"> {
  * labelling it `translated` would make an absence look like a presence. The
  * distinction is what `kind` exists for.
  */
+/**
+ * Accents removed, case flattened — enough to tell "Medea" from "Médéa".
+ *
+ * NFD splits a letter from its combining marks, so dropping `\p{M}` leaves the
+ * base letters. Used only to decide *which* fallback label applies, never to
+ * decide whether something is a fallback: a Latin-script language dropping a
+ * diacritic is often writing its own correct name, and demoting Turkish
+ * "İstanbul" for matching English "Istanbul" would be the same class of error
+ * this function exists to prevent, pointing the other way.
+ */
+const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
+
 function actualKind(name: Name, pivot: string): Kind {
   // An override is not evidence to be re-examined; a human already decided.
   if (name.kind === "override") return "override"
@@ -66,8 +78,25 @@ function actualKind(name: Name, pivot: string): Kind {
    * The script is the evidence. A Thai name contains Thai characters; if it does
    * not, nobody has written this place in Thai, and saying otherwise makes the
    * coverage numbers a claim rather than a measurement.
+   *
+   * Which of the two fallbacks it is depends on whether it is the pivot in
+   * disguise, and the history's first entry is what showed that up. Tatar had
+   * "Çikago", "Keyptawn" and "Filadelfiä" going into the same bucket as "Medea",
+   * and they are not the same thing:
+   *
+   *   "Medea"    against pivot "Médéa"   — the pivot with its accents stripped
+   *   "Çikago"   against pivot "Chicago" — somebody writing it in Tatar's Latin
+   *                                        orthography, which is a real name
+   *
+   * Folding accents away and comparing separates them. Both are still excluded
+   * from every coverage figure, so no number moves; it matters for precedence,
+   * because a transliteration outranks a bare romanisation and should win when
+   * both exist — and because the next person reading this data should not
+   * conclude the source was lying when it was not.
    */
-  if (!isLatinLocale(name.locale) && isLatinScript(name.value)) return "romanised"
+  if (!isLatinLocale(name.locale) && isLatinScript(name.value)) {
+    return fold(name.value) === fold(pivot) ? "romanised" : "transliterated"
+  }
   return name.kind
 }
 

@@ -130,6 +130,20 @@ export async function sync(argv: string[]): Promise<void> {
    * here means the drift check that follows is testing something current rather
    * than failing on a step somebody forgot.
    */
+  /**
+   * The record of this publish, appended once the publish has actually happened.
+   *
+   * After `data/` rather than before: the history says what was *released*, and a
+   * run that stopped at the load would otherwise leave an entry describing a
+   * database nobody is serving.
+   *
+   * `places diff` above wrote the comparison to `.build/change.json`; this folds
+   * it in. It is the same numbers the human was shown, kept rather than recomputed
+   * — for the same reason the loss gate parses the printed diff instead of doing
+   * its own arithmetic.
+   */
+  run("recording what this publish changed", places("history", "--append"))
+
   run("rebuilding the registry items", places("registry"))
 
   run("checks", ["bun", "run", "check"])

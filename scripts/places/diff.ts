@@ -20,19 +20,29 @@
  */
 
 import { gunzipSync } from "node:zlib"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve as resolvePath } from "node:path"
 import { records } from "../lib/ndjson.ts"
 import type { MergedPlace, Resolved } from "./merge.ts"
 
-const OUT = process.env.PLACES_OUT ?? ".build"
 const ROOT = resolvePath(import.meta.dirname, "../..")
+/** Resolved against ROOT so an absolute PLACES_OUT works, and so cwd does not matter. */
+const OUT = resolvePath(ROOT, process.env.PLACES_OUT ?? ".build")
+/**
+ * Where the last publish lives. Overridable so this can be pointed at an older one.
+ *
+ * `data/` is the answer in every real run. It is a variable so that a test can
+ * compare two known snapshots, and so that a genuine past release can be restored
+ * and diffed against — which is how the history file got its first entry without
+ * anybody inventing one.
+ */
+const DATA = process.env.PLACES_DATA ?? join(ROOT, "data")
 
 type Snapshot = Map<string, { pivot: string; names: Map<string, Resolved> }>
 
 /** The published artefact: what we last stood behind. */
 function published(tier: string): Snapshot | null {
-  const path = join(ROOT, "data", `${tier}.ndjson.gz`)
+  const path = join(DATA, `${tier}.ndjson.gz`)
   if (!existsSync(path)) return null
   const out: Snapshot = new Map()
   for (const line of gunzipSync(readFileSync(path)).toString("utf8").trimEnd().split("\n")) {
@@ -58,7 +68,31 @@ interface Change {
   byLocale: Map<string, number>
   /** A name that was a real translation and is now a fallback. The one to look at. */
   demoted: string[]
+  /**
+   * Every name whose value moved, as `id locale: before → after`.
+   *
+   * Collected rather than only counted, because it is the answer to the one
+   * question `diff` could never answer: *when did this name change, and to what*.
+   * A count says something moved; a person chasing a bad translation needs the
+   * two strings.
+   *
+   * Capped, because a full rebuild after a source release can move six figures of
+   * rows and this ends up in a file that is committed. `truncated` says when the
+   * list is not the whole story rather than letting it look complete.
+   */
+  edits: string[]
+  truncated: number
 }
+
+/**
+ * How many edited names one publish records.
+ *
+ * Today's OSM fold-in moved 110 names across the two tiers that changed, so this
+ * is roughly forty publishes of headroom before it ever bites. It is here so that
+ * the day a source renames every row, the history file grows by a page instead of
+ * by the database.
+ */
+const MAX_EDITS = 5000
 
 function compare(was: Snapshot, now: Snapshot): Change {
   const change: Change = {
@@ -66,6 +100,8 @@ function compare(was: Snapshot, now: Snapshot): Change {
     names: { added: 0, removed: 0, changed: 0 },
     byLocale: new Map(),
     demoted: [],
+    edits: [],
+    truncated: 0,
   }
   const bump = (locale: string, by: number) => change.byLocale.set(locale, (change.byLocale.get(locale) ?? 0) + by)
 
@@ -80,7 +116,14 @@ function compare(was: Snapshot, now: Snapshot): Change {
     for (const [locale, name] of after.names) {
       const old = before.names.get(locale)
       if (!old) { change.names.added++; bump(locale, 1); continue }
-      if (old.value !== name.value) change.names.changed++
+      if (old.value !== name.value) {
+        change.names.changed++
+        if (change.edits.length < MAX_EDITS) {
+          change.edits.push(`${id} ${locale}: ${old.value} → ${name.value}`)
+        } else {
+          change.truncated++
+        }
+      }
       /**
        * A real translation becoming a fallback is the regression that matters.
        *
@@ -100,10 +143,33 @@ function compare(was: Snapshot, now: Snapshot): Change {
   return change
 }
 
+/**
+ * The shape written to `.build/change.json` for `places history` to pick up.
+ *
+ * Separate from the console output on purpose. The printed version is for a
+ * person deciding whether to ship; this is the same comparison kept so that in
+ * six weeks somebody can ask when a name moved and get an answer rather than a
+ * shrug. `places diff` computed all of it and threw it away every time.
+ */
+export interface TierChange {
+  tier: string
+  places: { before: number; after: number; added: number; removed: string[] }
+  names: { after: number; added: number; removed: number; changed: number }
+  /** Net name delta per locale. The series behind "when did Thai coverage jump". */
+  byLocale: Record<string, number>
+  /** Real translations that became fallbacks. */
+  demoted: string[]
+  /** `id locale: before → after`, capped. */
+  edits: string[]
+  /** How many edits did not fit. Zero means the list above is complete. */
+  truncated: number
+}
+
 export async function diff(argv: string[]): Promise<void> {
   const tiers = argv.filter((a) => !a.startsWith("--"))
   const wanted = tiers.length ? tiers : ["countries", "subdivisions", "cities"]
   let anything = false
+  const recorded: TierChange[] = []
 
   for (const tier of wanted) {
     if (!existsSync(join(OUT, `${tier}.merged.ndjson`))) continue
@@ -114,6 +180,25 @@ export async function diff(argv: string[]): Promise<void> {
     }
     const now = await built(tier)
     const c = compare(was, now)
+
+    /**
+     * Recorded before the "did anything move" test, not after.
+     *
+     * An unchanged tier is a fact worth keeping: without it the history has a
+     * gap where a publish happened and cannot distinguish "nothing changed" from
+     * "nobody ran it".
+     */
+    let names = 0
+    for (const p of now.values()) names += p.names.size
+    recorded.push({
+      tier,
+      places: { before: was.size, after: now.size, added: c.places.added, removed: c.places.removed },
+      names: { after: names, added: c.names.added, removed: c.names.removed, changed: c.names.changed },
+      byLocale: Object.fromEntries(c.byLocale),
+      demoted: c.demoted,
+      edits: c.edits,
+      truncated: c.truncated,
+    })
     const moved =
       c.places.added || c.places.removed.length || c.names.added || c.names.removed || c.names.changed
     if (!moved) { console.log(`  ${tier.padEnd(13)} unchanged`); continue }
@@ -137,6 +222,17 @@ export async function diff(argv: string[]): Promise<void> {
       if (c.demoted.length > 5) console.log(`      …and ${c.demoted.length - 5} more`)
     }
   }
+
+  /**
+   * Always written, even when nothing moved.
+   *
+   * `places history --append` reads this after the publish succeeds. Writing it
+   * here rather than recomputing there means the number that goes into the record
+   * is the number the person was shown — the same rule that makes `sync` parse the
+   * loss count out of the printed diff instead of computing its own.
+   */
+  mkdirSync(OUT, { recursive: true })
+  writeFileSync(join(OUT, "change.json"), JSON.stringify({ at: new Date().toISOString(), tiers: recorded }, null, 2))
 
   if (anything) {
     console.log("\n  Losses are not automatically wrong — filtering the deprecated country")

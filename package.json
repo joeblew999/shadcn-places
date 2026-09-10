@@ -2,7 +2,7 @@
   "name": "shadcn-places",
   "version": "0.1.0",
   "type": "module",
-  "description": "Countries, states and cities in every language the open data has — API, data and a cascading shadcn picker.",
+  "description": "Countries, states and cities in every language the open data has \u2014 API, data and a cascading shadcn picker.",
   "license": "MIT",
   "scripts": {
     "places": "bun scripts/places.ts",
@@ -14,13 +14,15 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260908.1",
-    "@orpc/cloudflare": "^2.0.0-beta.35",
-    "@orpc/contract": "^2.0.0-beta.35",
-    "@orpc/evlog": "^2.0.0-beta.35",
-    "@orpc/json-schema": "^2.0.0-beta.35",
-    "@orpc/openapi": "^2.0.0-beta.35",
-    "@orpc/server": "^2.0.0-beta.35",
-    "@orpc/zod": "^2.0.0-beta.35",
+    "@orpc/cloudflare": "2.0.0-beta.35",
+    "@orpc/contract": "2.0.0-beta.35",
+    "@orpc/evlog": "2.0.0-beta.35",
+    "@orpc/json-schema": "2.0.0-beta.35",
+    "@orpc/openapi": "2.0.0-beta.35",
+    "@orpc/server": "2.0.0-beta.35",
+    "@orpc/tanstack-query": "2.0.0-beta.35",
+    "@orpc/zod": "2.0.0-beta.35",
+    "@tanstack/react-query": "^5.102.8",
     "@types/node": "^26.4.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
@@ -43,8 +45,9 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@orpc/client": "^2.0.0-beta.35",
-    "@orpc/contract": ">=1.15.0",
+    "@orpc/client": ">=2.0.0-beta.35",
+    "@orpc/contract": ">=2.0.0-beta.35",
+    "@orpc/openapi": ">=2.0.0-beta.35",
     "zod": ">=4"
   }
 }

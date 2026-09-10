@@ -24,7 +24,26 @@ import { createORPCClient } from "@orpc/client"
 import { RPCLink } from "@orpc/client/fetch"
 import { BatchLinkPlugin, DedupeRequestsPlugin, RetryAfterPlugin } from "@orpc/client/plugins"
 import type { ContractRouterClient } from "@orpc/contract"
-import { contract } from "./api/contract.ts"
+/**
+ * Extensionless, unlike every other import in this repository.
+ *
+ * This file is a *published entry point* — `shadcn-places/client` — and the rest
+ * of them are not. A `.ts` import extension requires `allowImportingTsExtensions`
+ * in the tsconfig doing the compiling, which is ours and is not a consumer's. So
+ * this line compiled here and failed in every project that installed the package:
+ *
+ *   error TS5097: An import path can only end with a '.ts' extension when
+ *   'allowImportingTsExtensions' is enabled
+ *
+ * Found the day `example/` first imported the typed client rather than
+ * hand-rolling one, which is the fourth thing this project has documented,
+ * published and never once executed the way a stranger would. The others were the
+ * registry item, this same client's existence, and the OpenAPI document.
+ *
+ * tests/repo/package.test.ts now walks every export in the map and fails on a
+ * `.ts` extension anywhere it can reach.
+ */
+import { contract } from "./api/contract"
 
 export type PlacesClient = ContractRouterClient<typeof contract>
 

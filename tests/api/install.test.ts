@@ -35,21 +35,50 @@ describe.skipIf(!enabled)("the published component installs and compiles", () =>
       // leftover from a previous run would pass without installing anything.
       rmSync(resolve(EXAMPLE, "src/components"), { recursive: true, force: true })
 
+      /**
+       * The link to the parent package, which `Typed.tsx` imports.
+       *
+       * Deliberately not a bun workspace: hoisting would let this project resolve
+       * packages from the parent's node_modules that a real consumer would not
+       * have, and "the test passed for the wrong reason" is the failure this whole
+       * directory exists to prevent. So the link is explicit and made here, where
+       * a fresh clone gets it without anybody remembering.
+       */
+      const linked = run("bun", ["run", "setup"])
+      expect(linked.status, `bun run setup failed:\n${linked.stderr}`).toBe(0)
+
       const installed = run("bun", ["run", "install-picker"])
       expect(installed.status, `shadcn add failed:\n${installed.stderr}`).toBe(0)
 
       /**
-       * The component itself, not just its dependencies.
+       * The components themselves, not just their dependencies.
        *
        * This is the assertion that was missing. `shadcn add` reports success for
        * having written the registryDependencies, so the exit code proves nothing
        * about the thing you asked for.
+       *
+       * Both items are checked because the failure is per item: `places-coverage`
+       * installed cleanly on its own and silently did not when it was the second
+       * URL in one `shadcn add` — the CLI reads the first argument as the registry
+       * and every later one as a *name* inside it.
        */
-      expect(
-        existsSync(resolve(EXAMPLE, "src/components/places-picker.tsx")),
-        "shadcn add reported success but wrote no places-picker.tsx — the served item is missing file content",
-      ).toBe(true)
+      for (const item of ["places-picker", "places-coverage"]) {
+        expect(
+          existsSync(resolve(EXAMPLE, `src/components/${item}.tsx`)),
+          `shadcn add reported success but wrote no ${item}.tsx — the served item is missing file content`,
+        ).toBe(true)
+      }
 
+      /**
+       * Compiles under a consumer's tsconfig, which is the only compiler that counts.
+       *
+       * `example/` now imports `shadcn-places/client` as well as the components,
+       * and that is what caught TS5097: the published entry point imported
+       * `./api/contract.ts` with the extension, which needs
+       * `allowImportingTsExtensions` — a flag this repository sets and a consumer
+       * has no reason to. Every one of our own tests passed, because they compiled
+       * it through our tsconfig.
+       */
       const checked = run("bun", ["run", "check"])
       expect(checked.status, `the installed component does not compile:\n${checked.stdout}`).toBe(0)
     },

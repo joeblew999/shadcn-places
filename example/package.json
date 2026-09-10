@@ -4,7 +4,8 @@
   "type": "module",
   "description": "A bare consumer project. Proves the registry item actually installs and compiles.",
   "scripts": {
-    "install-picker": "bunx --bun shadcn@latest add ${PLACES_URL:-https://shadcn-places.gedw99.workers.dev}/r/places-picker.json",
+    "setup": "cd .. && bun link && cd example && bun link shadcn-places && bun install",
+    "install-picker": "bunx --bun shadcn@latest add ${PLACES_URL:-https://shadcn-places.gedw99.workers.dev}/r/places-picker.json && bunx --bun shadcn@latest add ${PLACES_URL:-https://shadcn-places.gedw99.workers.dev}/r/places-coverage.json",
     "check": "tsc --noEmit"
   },
   "devDependencies": {
@@ -22,7 +23,13 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@orpc/client": "2.0.0-beta.35",
+    "@orpc/contract": "2.0.0-beta.35",
+    "@orpc/tanstack-query": "2.0.0-beta.35",
+    "@tanstack/react-query": "^5.102.8",
     "cn": "^0.2.6",
-    "radix-ui": "^1.6.7"
+    "radix-ui": "^1.6.7",
+    "zod": "^4.5.4",
+    "shadcn-places": "link:shadcn-places"
   }
 }

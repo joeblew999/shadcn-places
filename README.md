@@ -31,7 +31,12 @@ Data from [GeoNames](https://www.geonames.org) (CC BY 4.0),
 ## Install
 
 ```bash
+# The cascading picker. One command per item — `shadcn add` reads a second URL as
+# an item *name* inside the first registry, not as a second registry.
 bunx shadcn@latest add https://shadcn-places.gedw99.workers.dev/r/places-picker.json
+
+# Optional: what the data actually has, per language, ranked by readers affected.
+bunx shadcn@latest add https://shadcn-places.gedw99.workers.dev/r/places-coverage.json
 ```
 
 ```ts
@@ -44,6 +49,13 @@ await places.countries.list({ locale: "sw" })
 await places.subdivisions.list({ country: "BR", locale: "ja" })
 await places.cities.search({ country: "BR", q: "our", locale: "ja" })
 ```
+
+The picker decides nothing for you. `locales` is a prop — pass the languages your
+app has actually translated rather than the 898 this holds — and so are
+`countries`, `subdivisions` and `cities`, so TanStack Query or anything else can
+own the fetching. [`example/src/Typed.tsx`](example/src/Typed.tsx) does exactly
+that; [`example/src/App.tsx`](example/src/App.tsx) uses fifteen lines of `fetch`
+and no packages of ours.
 
 Every endpoint is also a plain `GET`:
 
@@ -63,7 +75,7 @@ Not "every place in every language" — that does not exist in open data.
 | --- | --- | --- |
 | **Countries** | 257 | **100%, every locale ICU carries** |
 | **Subdivisions** | 5,304 | 77–100% for most languages |
-| **Cities** | 69,700 | A romanised name always; 11–59% translated depending on language |
+| **Cities** | 69,700 | A romanised name always; 17–59% translated depending on language |
 
 Every name carries a **`kind`** — `override`, `translated`, `native`, `romanised`,
 `transliterated` — and the **source** it came from, so you always know whether you
@@ -84,6 +96,7 @@ wrong lives in **[docs/](docs/README.md)**. Start there.
 bun install
 bun run places          # what the CLI can do
 bun run places sync     # the whole cycle: pull → merge → diff → load → publish
+bun run places history  # when a name changed, and to what
 bun run check           # typecheck, repo checks, service tests
 ```
 

@@ -7,10 +7,42 @@
       "name": "places-picker",
       "type": "registry:component",
       "title": "Places Picker",
-      "description": "Country, state and city in the reader's language, cascading so no query scans the world.",
-      "registryDependencies": ["button", "command", "popover"],
-      "dependencies": ["lucide-react"],
-      "files": [{ "path": "src/web/places-picker.tsx", "type": "registry:component", "target": "components/places-picker.tsx" }]
+      "description": "Country, state and city in the reader's language, cascading so no query scans the world. Takes its language list as a prop, and its rows from any data layer.",
+      "registryDependencies": [
+        "button",
+        "command",
+        "popover"
+      ],
+      "dependencies": [
+        "lucide-react"
+      ],
+      "files": [
+        {
+          "path": "src/web/places-picker.tsx",
+          "type": "registry:component",
+          "target": "components/places-picker.tsx"
+        }
+      ],
+      "docs": "Pass a `client` that speaks the shadcn-places contract — `createPlacesClient()` from `shadcn-places/client`, a service binding, or fifteen lines of fetch. Pass `locales` to offer your own languages rather than the 898 the service holds, and `countries`/`subdivisions`/`cities` to drive it from TanStack Query or any other data layer. Installing and using this component is MIT; only redistributing the place DATABASE triggers ODbL. See LICENSE and LICENSE-DATA."
+    },
+    {
+      "name": "places-coverage",
+      "type": "registry:component",
+      "title": "Places Coverage",
+      "description": "What the service actually has, per language, ranked by readers affected — plus the diagonal, which is the number a product serving one market lives on.",
+      "registryDependencies": [
+        "badge",
+        "table"
+      ],
+      "dependencies": [],
+      "files": [
+        {
+          "path": "src/web/places-coverage.tsx",
+          "type": "registry:component",
+          "target": "components/places-coverage.tsx"
+        }
+      ],
+      "docs": "Feed it `/api/locales?min=0&by=readers`. Two numbers per language and `latinScript` says which one means something — a single figure reports Spanish cities at 14% when a Spanish reader gets a correct name for 51% of them. Installing and using this component is MIT; only redistributing the place DATABASE triggers ODbL. See LICENSE and LICENSE-DATA."
     }
   ]
 }

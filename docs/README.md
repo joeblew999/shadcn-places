@@ -21,15 +21,16 @@ wrong. The README is for somebody deciding whether to use this; everything about
 
 | Work | State | What it holds |
 | --- | --- | --- |
-| [World coverage](2026-09-10-03-world-coverage.md) | Countries done, subdivisions strong, cities the gap | What each language actually has and what would move it. OSM for cities was measured and rejected on incremental value, then re-measured and accepted once the join was fixed — and is now folded in. |
-| [GUI driven by the matrix](2026-09-10-04-gui-driven-by-the-matrix.md) | Mostly built | `/api/locales`, endonyms and the demo's heatmap are done. Open: the picker taking its list as a prop, and the heatmap as a second registry item. |
+| [World coverage](2026-09-10-03-world-coverage.md) | Countries done, subdivisions strong, cities at the ceiling of open data | What each language actually has and what would move it. OSM for cities was measured and rejected on incremental value, then re-measured and accepted once the join was fixed — and is now folded in. |
 | [Why these sources](2026-09-09-why-these-sources.md) | Reference; still current | Five candidates measured rather than read about, and the reasoning that picked each tier's winner. Two conclusions were later disproved by building; both corrections are inline. Stays here because it is consulted, not because it is unfinished. |
 
 ## Done
 
 | Work | What it holds |
 | --- | --- |
+| [Closing the open list](2026-09-10-08-closing-the-open-list.md) | The last four open items, and the four things they found — including a typed client that had never compiled in a consumer project. |
 | [One answer per question](2026-09-10-07-one-answer-per-question.md) | The oRPC 2.0 migration, the Worker that was never typechecked, and the script classification being asked in three runtimes that disagree. |
+| [GUI driven by the matrix](done/2026-09-10-04-gui-driven-by-the-matrix.md) | The language picker driven by the data rather than by a list, and the coverage heatmap as a second registry item. All six steps ticked with their proof. |
 | [The CLI and the platform](done/2026-09-10-06-the-cli-and-the-platform.md) | `places sync` and its ordering, and the eight Cloudflare/oRPC features that replaced things hand-rolled worse. Includes two failures that cost real time. |
 | [Things that never worked](done/2026-09-10-05-things-that-never-worked.md) | The registry item, the typed client and the OpenAPI spec were all documented and all broken, and every check was green. What each check should have asserted. |
 | [Rebuild strategy](done/2026-09-10-02-rebuild-strategy.md) | It rebuilds, it does not repair. `overrides.json` is the only kind a rebuild preserves; `places diff` is the safety net. |
@@ -37,19 +38,16 @@ wrong. The README is for somebody deciding whether to use this; everything about
 
 ## Still open
 
-- **Cities are 17–59% translated** for the languages that need translation, and
+- **Cities are 17–59% translated** for the languages that need translating, and
   that is close to the ceiling of open data. Transliteration is the only thing
   left that could raise it for non-Latin scripts, and it is a research problem
-  rather than a feature.
-- **The heatmap as a registry item** — it is in the demo but not installable, so
-  anyone self-hosting cannot see their own coverage.
-- **The picker taking its locale list as a prop** — it is still deciding for the
-  caller, which is the one thing this service exists not to do.
-- **`@orpc/tanstack-query` for the picker** — the one remaining unused package
-  from the oRPC Cloudflare playground that solves a problem this has.
-  `@orpc/hibernation` and `@orpc/publisher` do not.
-- **No history.** `places diff` compares against the last publish, not against
-  every publish, so "when did this name change?" has no answer.
+  rather than a feature. A known limit, not a task.
+
+Everything else on this list is done: the heatmap ships as
+[`places-coverage`](done/2026-09-10-04-gui-driven-by-the-matrix.md), the picker
+takes its language list — and its rows — as props, `@orpc/tanstack-query` drives
+`example/src/Typed.tsx`, and `places history` answers when a name changed and to
+what. See [closing the open list](2026-09-10-08-closing-the-open-list.md).
 
 ## The other half
 

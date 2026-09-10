@@ -97,14 +97,30 @@ describe("registry", () => {
         }
       })
 
-      it("has a standalone item file, which is what `shadcn add <url>` fetches", () => {
-        const path = `registry/${item.name}.json`
-        expect(existsSync(resolve(ROOT, path)), `${path} is missing — the URL form of the install would 404`).toBe(true)
-        const standalone = json(path) as Item
-        expect(standalone.name).toBe(item.name)
-        // Two copies of the same manifest is how they drift. Checked rather than
-        // deduplicated, because the two files have genuinely different schemas.
-        expect(new Set(standalone.registryDependencies ?? [])).toEqual(new Set(item.registryDependencies ?? []))
+      it("serves the item at the URL `shadcn add <url>` fetches", () => {
+        /**
+         * There used to be a third copy of this manifest.
+         *
+         * `registry/<name>.json` was hand-written alongside `registry.json` and
+         * `public/<name>.json`, and this test asserted it existed with the comment
+         * "the URL form of the install would 404" without it. That was false:
+         * `[assets] directory = "public"`, and the Worker strips `/r` and looks
+         * there. Nothing has ever served `registry/`.
+         *
+         * So it was two hand-maintained copies of one manifest, one of them dead,
+         * guarded by a test that checked they agreed — the drift protection was
+         * real and the thing it protected was not. `registry/` is gone and this
+         * asserts the file the URL actually resolves to.
+         */
+        const served = `public/${item.name}.json`
+        expect(existsSync(resolve(ROOT, served)), `${served} is missing — the install URL would 404`).toBe(true)
+        const built = json(served) as Item & { docs?: string }
+        expect(built.name).toBe(item.name)
+        expect(new Set(built.registryDependencies ?? [])).toEqual(new Set(item.registryDependencies ?? []))
+        // Every item says what it is for and what its licence obliges. A component
+        // copied into somebody's repo carries no README with it.
+        expect(built.docs, `${item.name} has no docs — an installed file explains nothing about itself`).toBeTruthy()
+        expect(built.docs).toMatch(/ODbL/)
       })
     })
   }

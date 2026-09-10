@@ -50,6 +50,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "diff [tier...]                what a rebuild changed against the published data",
     run: async (argv) => (await import("./places/diff.ts")).diff(argv),
   },
+  history: {
+    help: "history [locale|id|text] [--append]   when a name changed, and to what",
+    run: async (argv) => (await import("./places/history.ts")).history(argv),
+  },
   osm: {
     help: "osm [--refresh] [--extract-only] [CC...]   city names from OpenStreetMap, matched by coordinate",
     run: async (argv) => (await import("./places/osm.ts")).osm(argv),
