@@ -17,7 +17,8 @@
  * having no `.build/`.
  */
 
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { execSync } from "node:child_process"
 import { gunzipSync } from "node:zlib"
 import { resolve } from "node:path"
 import { describe, it, expect } from "vitest"
@@ -210,5 +211,32 @@ describe("overrides", () => {
       }
     }
     expect(pointless, "an override did not take effect").toEqual([])
+  })
+})
+
+describe("the repository carries data it means to carry", () => {
+  /**
+   * `.build/load.sql` was committed for a day without anyone noticing.
+   *
+   * It was added before `.gitignore` was tightened from `.build/*.ndjson` to
+   * `.build/`, and an ignore rule does not untrack what is already tracked — so it
+   * stayed, and grew from 12MB to 76MB as the dataset did, until GitHub warned on
+   * push. Every clone of a repository whose entire purpose is being easy to adopt
+   * was carrying a generated file twice the size of everything else.
+   *
+   * `data/` is deliberately committed and deliberately large; it is the ODbL
+   * obligation. Everything else that big is an accident.
+   */
+  it("tracks no large generated files outside data/", () => {
+    const tracked = execSync("git ls-files -z", { cwd: ROOT, encoding: "buffer" })
+      .toString("utf8")
+      .split("\0")
+      .filter(Boolean)
+    const large = tracked
+      .filter((f) => !f.startsWith("data/") && existsSync(resolve(ROOT, f)))
+      .map((f) => [f, statSync(resolve(ROOT, f)).size] as const)
+      .filter(([, size]) => size > 2_000_000)
+      .map(([f, size]) => `${f} (${(size / 1048576).toFixed(0)}MB)`)
+    expect(large, "generated output is tracked — a .gitignore added later does not untrack").toEqual([])
   })
 })
