@@ -59,6 +59,8 @@ interface Params {
 
 const key = {
   staged: "stage/cities.ndjson",
+  tier: (t: string) => `stage/${t}.ndjson`,
+  mergedTier: (t: string) => `build/${t}.merged.ndjson`,
   merged: (part: number) => `build/cities.merged-${part}.ndjson`,
   sql: "build/load.sql",
 }
@@ -165,6 +167,57 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
     }
 
     /**
+     * Countries and subdivisions, whole rather than partitioned.
+     *
+     * 257 and 5,304 against 34,135 cities — small enough to merge in one step
+     * each, and partitioning them would be ceremony. The names for subdivisions
+     * came out of the same pass over `alternateNames.txt` that fed the cities, so
+     * they are gathered here rather than re-read.
+     */
+    const smallTiers: Record<string, { places: number; names: number }> = {}
+    for (const tier of ["countries", "subdivisions"]) {
+      smallTiers[tier] = await step.do(`merge the ${tier}`, async () => {
+        const extra = new Map<string, Name[]>()
+        if (tier === "subdivisions") {
+          const listing = await this.env.ARCHIVE.list({ prefix: "stage/subdivision-names-" })
+          for (const object of listing.objects) {
+            for await (const line of linesOf(this.env.ARCHIVE, object.key)) {
+              const row = JSON.parse(line) as { placeId: string; names: Name[] }
+              const list = extra.get(row.placeId) ?? []
+              list.push(...row.names)
+              extra.set(row.placeId, list)
+            }
+          }
+        }
+        const out: string[] = []
+        let merged = 0
+        const seen = new Set<string>()
+        for await (const line of linesOf(this.env.ARCHIVE, key.tier(tier))) {
+          const place = JSON.parse(line) as Place
+          /**
+           * First occurrence wins on a duplicate id.
+           *
+           * dr5hn lists four French overseas territories as both French
+           * subdivisions and entries in their own right, so `subdivision:FR-973`
+           * appears twice. D1 answers `UNIQUE constraint failed: place.id` and
+           * names none of them.
+           */
+          if (seen.has(place.id)) continue
+          seen.add(place.id)
+          const more = extra.get(place.id)
+          if (more) place.names = [...place.names, ...more]
+          const resolved: MergedPlace = { ...place, names: resolve(place, overrides) }
+          merged += resolved.names.length
+          out.push(JSON.stringify(resolved))
+        }
+        await this.env.ARCHIVE.put(key.mergedTier(tier), out.join("\n") + "\n")
+        return { places: out.length, names: merged }
+      })
+      places += smallTiers[tier].places
+      names += smallTiers[tier].names
+    }
+
+    /**
      * The SQL, written once the merge is settled.
      *
      * A full load rather than a delta: a delta needs the previous publish to
@@ -198,8 +251,12 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
        * and names no row. `PRAGMA foreign_keys=OFF` would silence it and would be
        * the wrong fix: the constraint was right and the order was wrong.
        */
-      for (let part = 0; part < partitions; part++) {
-        for await (const line of linesOf(this.env.ARCHIVE, key.merged(part))) {
+      const everyMergedFile = [
+        ...["countries", "subdivisions"].map((t) => key.mergedTier(t)),
+        ...Array.from({ length: partitions }, (_, i) => key.merged(i)),
+      ]
+      for (const file of everyMergedFile) {
+        for await (const line of linesOf(this.env.ARCHIVE, file)) {
           const p = JSON.parse(line) as MergedPlace
           placeRows.push(
             `(${q(p.id)},${q(p.type)},${q(p.pivot)},${s(p.parent)},${s(p.country)},${n(p.lat)},${n(p.lon)},${n(p.population)},${s(p.wikidata)})`,
@@ -209,8 +266,8 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
       }
       flush("place", "id,type,pivot,parent_id,country_code,lat,lon,population,wikidata_id", placeRows)
 
-      for (let part = 0; part < partitions; part++) {
-        for await (const line of linesOf(this.env.ARCHIVE, key.merged(part))) {
+      for (const file of everyMergedFile) {
+        for await (const line of linesOf(this.env.ARCHIVE, file)) {
           const p = JSON.parse(line) as MergedPlace
           for (const nm of p.names) {
             nameRows.push(`(${q(p.id)},${q(nm.locale)},${q(nm.value)},${q(nm.source)},${q(nm.kind)})`)

@@ -18,6 +18,14 @@ import { join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { tsv, jsonArray, ndjsonWriter } from "../lib/ndjson.ts"
 import { NOT_LANGUAGES, isLanguageTag, type Kind } from "../lib/sources.ts"
+/**
+ * Countries and the subdivision row shape come from `src/etl/tiers.ts`.
+ *
+ * The Cloudflare Workflow generates the same tiers, and two definitions of "which
+ * region codes are countries" or "which locales CLDR carries" would be two
+ * databases. Same rule as `src/etl/geonames.ts` for cities.
+ */
+import { countryPlaces, parseSubdivisionRow, osmSubdivision, parseAdmin1Row } from "../../src/etl/tiers.ts"
 
 const STAGE = process.env.PLACES_STAGE ?? ".stage"
 const OUT = process.env.PLACES_OUT ?? ".build"
@@ -74,73 +82,6 @@ function expand(zip: string): string {
  * English. A locale that looks configured and silently renders the wrong language
  * is the worst failure mode available.
  */
-/**
- * Region codes ICU will happily name that are not countries anyone picks from.
- *
- * Enumerating every two-letter code and keeping whatever CLDR names produces a
- * list with Germany in it twice — once as DE and once as DD, East Germany — plus
- * Serbia three times, the Euro zone, the United Nations, and two pseudo-locales
- * used for testing that render as 疑似アクセント. It looked fine in a JSON
- * response and was obvious the moment a human opened the dropdown.
- *
- * Two groups, and they are excluded for different reasons:
- *
- *   Deprecated ISO codes still carried by CLDR for historical data — every one of
- *   these is a synonym for a country already in the list, so keeping them is a
- *   duplicate rather than a country.
- *
- *   Groupings and non-countries — organisations, currency unions, an unknown
- *   region, and the two pseudo-locales.
- *
- * `tests/repo/data.test.ts` holds the invariant this exists to produce: no two
- * countries share a name. A list that grows a duplicate again fails there rather
- * than in somebody's dropdown.
- */
-const NOT_A_COUNTRY = new Set([
-  // Deprecated ISO 3166-1 codes: synonyms for a country already present.
-  "AN","BU","CS","CT","DD","DY","FQ","FX","HV","JT","MI","NH","NQ","NT","PC","PU",
-  "PZ","RH","SU","TP","UK","VD","WK","YD","YU","ZR",
-  // Groupings, organisations and test regions — never a place a person is in.
-  "EU","EZ","UN","QO","ZZ","XA","XB",
-])
-
-function* countries(): Generator<Place> {
-  const codes: string[] = []
-  for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) codes.push(String.fromCharCode(a, b))
-  const english = new Intl.DisplayNames(["en"], { type: "region", fallback: "none" })
-  for (const code of codes) {
-    if (NOT_A_COUNTRY.has(code)) continue
-    const pivot = english.of(code)
-    if (!pivot) continue
-    const names: Name[] = []
-    for (const locale of CLDR_LOCALES) {
-      const tag = locale === "tl" ? "fil" : locale
-      const value = new Intl.DisplayNames([tag], { type: "region", fallback: "none" }).of(code)
-      if (!value) continue
-      const resolved = new Intl.DisplayNames([tag], { type: "region" }).resolvedOptions().locale
-      // If ICU fell back to another language, the string is that language's, not
-      // this one's. Recording it as `locale` would be a lie the size of a country.
-      if (!resolved.toLowerCase().startsWith(tag.toLowerCase().split("-")[0])) continue
-      names.push({ locale, value, source: "cldr", kind: "translated" })
-    }
-    yield { id: `country:${code}`, type: "country", pivot, names }
-  }
-}
-
-/**
- * The locales to snapshot countries in.
- *
- * ICU carries hundreds and `Intl` exposes no list of them, so this enumerates the
- * CLDR modern coverage set. It is the one place a language list exists in this
- * service, it is about what CLDR *has* rather than what any consumer wants, and a
- * locale absent here still resolves at request time from the same ICU.
- */
-const CLDR_LOCALES = [
-  "af","am","ar","az","be","bg","bn","bs","ca","cs","cy","da","de","el","en","es","et","eu","fa","fi","fil",
-  "fr","ga","gl","gu","he","hi","hr","hu","hy","id","is","it","ja","ka","kk","km","kn","ko","ky","lo","lt",
-  "lv","mk","ml","mn","mr","ms","my","nb","ne","nl","pa","pl","ps","pt","ro","ru","si","sk","sl","sq","sr",
-  "sv","sw","ta","te","th","tr","uk","ur","uz","vi","zh","zh-Hant","zu",
-]
 
 /**
  * Subdivisions: dr5hn's nineteen languages, its `native`, and GeoNames for the
@@ -306,7 +247,7 @@ export async function extract(argv: string[]): Promise<void> {
   const want = (t: string) => (only.length ? only.includes(t) : true)
 
   const tiers: [string, AsyncGenerator<Place> | Generator<Place>][] = []
-  if (want("countries")) tiers.push(["countries", countries()])
+  if (want("countries")) tiers.push(["countries", countryPlaces()])
   if (want("subdivisions")) tiers.push(["subdivisions", subdivisions(files)])
   if (want("cities")) tiers.push(["cities", cities(files)])
 

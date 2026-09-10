@@ -38,6 +38,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { entriesFromUrl, openEntry, type ZipEntry } from "./zip.ts"
 import { lines, parseAlternateName, parseCityRow, type RawName } from "./geonames.ts"
 import { PARTITIONS, partitionOf, namesKey } from "./partition.ts"
+import { countryPlaces, parseSubdivisionRow, osmSubdivision, parseAdmin1Row } from "./tiers.ts"
 
 interface Env {
   ARCHIVE: R2Bucket
@@ -84,6 +85,104 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
   async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
     const inventory = event.payload?.inventory ?? "cities5000"
     const limit = event.payload?.limit
+
+    /**
+     * Countries, from the runtime's own CLDR.
+     *
+     * No download at all: `Intl.DisplayNames` is CLDR, and it is in the isolate.
+     * 257 territories in the 76 locales ICU carries.
+     *
+     * Worth being explicit that this is *workerd's* CLDR and the CLI's is bun's.
+     * The wording is editorial and moves with the ICU version, so the two can
+     * differ by a word — "Myanmar (Burma)" against "Myanmar". That is why this is
+     * snapshotted into R2 rather than computed per request: whichever runtime
+     * generates it, everything downstream reads one answer.
+     */
+    const countries = await step.do("stage the countries", async () => {
+      const out: string[] = []
+      for (const place of countryPlaces()) out.push(JSON.stringify(place))
+      await this.env.ARCHIVE.put(key.places("countries"), out.join("\n") + "\n")
+      return { places: out.length }
+    })
+
+    /**
+     * Subdivisions: dr5hn for the translations, OSM for the languages it lacks.
+     *
+     * dr5hn is a 6MB JSON array — small enough to parse whole, unlike everything
+     * else here. OSM comes from one Overpass query for every admin relation
+     * carrying an ISO 3166-2 code, and the join is that code: no coordinates, no
+     * name similarity, no threshold.
+     *
+     * GeoNames' alternate names reach subdivisions too, through `admin1CodesASCII`
+     * — the one file where a GeoNames id and an ISO 3166-2 code are written down
+     * together. That mapping is stashed for the names pass below.
+     */
+    const subdivisions = await step.do(
+      "stage the subdivisions",
+      { retries: { limit: 3, delay: "20 seconds", backoff: "exponential" }, timeout: "5 minutes" },
+      async () => {
+        const dr = await fetch("https://raw.githubusercontent.com/dr5hn/countries-states-cities-database/master/json/states.json")
+        if (!dr.ok) throw new Error(`dr5hn → HTTP ${dr.status}`)
+        const rows = (await dr.json()) as Record<string, unknown>[]
+
+        // GeoNames id → subdivision id, for the alternate-names pass.
+        const admin1 = await fetch("https://download.geonames.org/export/dump/admin1CodesASCII.txt")
+        const byGeonameId: Record<string, string> = {}
+        if (admin1.ok) {
+          for await (const line of lines(admin1.body!)) {
+            const row = parseAdmin1Row(line)
+            if (row) byGeonameId[row.geonameId] = row.id
+          }
+        }
+        await this.env.ARCHIVE.put("stage/subdivision-geonames.json", JSON.stringify(byGeonameId))
+
+        /**
+         * Overpass, for the languages dr5hn does not carry.
+         *
+         * Free, shared, volunteer infrastructure that explicitly asks callers to
+         * be reasonable — so one query for the world rather than one per country,
+         * and a failure here is not fatal. dr5hn alone is a usable subdivision
+         * tier; OSM is what takes Thai, Vietnamese, Indonesian, Swahili, Hebrew,
+         * Greek and Bengali from nothing to something.
+         */
+        const fromOsm = new Map<string, ReturnType<typeof osmSubdivision>>()
+        try {
+          const res = await fetch("https://overpass-api.de/api/interpreter", {
+            method: "POST",
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places)",
+            },
+            body: new URLSearchParams({
+              data: `[out:json][timeout:180];relation["ISO3166-2"]["boundary"="administrative"];out tags;`,
+            }),
+            signal: AbortSignal.timeout(240_000),
+          })
+          if (res.ok) {
+            const doc = (await res.json()) as { elements?: { tags?: Record<string, string> }[] }
+            for (const el of doc.elements ?? []) {
+              const found = osmSubdivision(el)
+              if (found) fromOsm.set(found.id, found)
+            }
+          }
+        } catch {
+          // Recorded in the return value rather than thrown: a rate-limited
+          // Overpass is "come back later", and losing the whole subdivision tier
+          // over it would be the wrong trade.
+        }
+
+        const out: string[] = []
+        for (const row of rows) {
+          const place = parseSubdivisionRow(row)
+          if (!place) continue
+          const osm = fromOsm.get(place.id)
+          if (osm) place.names.push(...osm.names)
+          out.push(JSON.stringify(place))
+        }
+        await this.env.ARCHIVE.put(key.places("subdivisions"), out.join("\n") + "\n")
+        return { places: out.length, osmMatched: fromOsm.size, admin1: Object.keys(byGeonameId).length }
+      },
+    )
 
     /**
      * The inventory first, because it is the filter for everything after it.
@@ -146,6 +245,18 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
     })
     const wanted = new Set(ids)
 
+    /**
+     * Subdivisions ride the same pass over `alternateNames.txt`.
+     *
+     * That file is 19.1 million lines and takes two minutes to stream. Scanning it
+     * twice — once for cities, once for subdivisions — would double the most
+     * expensive step here to collect two disjoint sets of rows from one read.
+     */
+    const subdivisionIds = await step.do("read the subdivision id map", async () => {
+      const object = await this.env.ARCHIVE.get("stage/subdivision-geonames.json")
+      return object ? ((await object.json()) as Record<string, string>) : {}
+    })
+
     let part = 0
     let kept = 0
     let scanned = 0
@@ -157,6 +268,7 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
         async () => {
           const stream = await openEntry(url, entry)
           const byId = new Map<string, RawName[]>()
+          const subdivisionNames = new Map<string, RawName[]>()
           const wikidata: string[] = []
           let seen = 0
           let taken = 0
@@ -166,11 +278,21 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
             if (seen > from + LINES_PER_STEP) break
             if (limit && seen > limit) break
             const row = parseAlternateName(line)
-            if (!row || !wanted.has(row.geonameId)) continue
-            if (row.kind === "wikidata") { wikidata.push(`${row.geonameId}\t${row.value}`); continue }
-            const list = byId.get(row.geonameId) ?? []
+            if (!row) continue
+            const subdivisionId = subdivisionIds[row.geonameId]
+            if (!wanted.has(row.geonameId) && !subdivisionId) continue
+            if (row.kind === "wikidata") {
+              if (wanted.has(row.geonameId)) wikidata.push(`${row.geonameId}\t${row.value}`)
+              continue
+            }
+            // Subdivisions are few — 5,304 against 34,135 cities — so they are
+            // accumulated whole rather than partitioned, and written once at the
+            // end of the pass.
+            const target = subdivisionId ? subdivisionNames : byId
+            const targetKey = subdivisionId ?? row.geonameId
+            const list = target.get(targetKey) ?? []
             list.push({ locale: row.locale, value: row.value, source: "geonames", kind: "translated" })
-            byId.set(row.geonameId, list)
+            target.set(targetKey, list)
             taken++
           }
           /**
@@ -197,6 +319,10 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
           }
           const body = { length: written }
           if (wikidata.length) await this.env.ARCHIVE.put(`stage/city-wikidata-${String(part).padStart(3, "0")}.tsv`, wikidata.join("\n"))
+          if (subdivisionNames.size) {
+            const rows = [...subdivisionNames].map(([placeId, names]) => JSON.stringify({ placeId, names }))
+            await this.env.ARCHIVE.put(`stage/subdivision-names-${String(part).padStart(3, "0")}.ndjson`, rows.join("\n") + "\n")
+          }
           return { seen, taken, places: body.length, exhausted: seen <= from + LINES_PER_STEP }
         },
       )
@@ -255,6 +381,9 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
       at: new Date().toISOString(),
       wikidataIds: joined.attached,
       inventory,
+      countries: countries.places,
+      subdivisions: subdivisions.places,
+      osmSubdivisions: subdivisions.osmMatched,
       cities: cities.places,
       nameLinesScanned: scanned,
       namesKept: kept,
