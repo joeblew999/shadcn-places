@@ -1,0 +1,26 @@
+{
+  // One target, one lib, one module resolution — the whole tree, including the
+  // ETL, the Worker and the tests. Three tsconfigs is how a repo ends up with a
+  // file that typechecks in one place and not in another.
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true,
+    "types": ["@types/node"]
+  },
+  // `src/web` is excluded on purpose. A registry item is a file that gets copied
+  // into somebody else's project and compiled against *their* shadcn components
+  // and *their* `@/` alias — neither of which exists here, and installing the
+  // whole of shadcn/ui into this repo to typecheck one component would be a lie
+  // about what is being checked. What is checkable here is that the registry
+  // points at files that exist and declares the components it needs; that is
+  // tests/repo/registry.test.ts. What is not checkable here is checked by
+  // installing it, which is the only honest test of a distributed artefact.
+  "include": ["src/api", "src/db", "scripts", "tests", "*.ts"]
+}

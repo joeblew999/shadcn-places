@@ -1,0 +1,16 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "shadcn-places",
+  "homepage": "https://github.com/joeblew999/shadcn-places",
+  "items": [
+    {
+      "name": "places-picker",
+      "type": "registry:component",
+      "title": "Places Picker",
+      "description": "Country, state and city in the reader's language, cascading so no query scans the world.",
+      "registryDependencies": ["button", "command", "popover"],
+      "dependencies": ["lucide-react"],
+      "files": [{ "path": "src/web/places-picker.tsx", "type": "registry:component", "target": "components/places-picker.tsx" }]
+    }
+  ]
+}

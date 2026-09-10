@@ -1,0 +1,34 @@
+Open Database License (ODbL) v1.0
+https://opendatacommons.org/licenses/odbl/1-0/
+
+--- What this covers ---
+
+The place DATA in this repository and served by its API: the countries,
+subdivisions, cities and their names, in every form this project distributes them
+(the database dumps, the seeded D1 contents, the NDJSON artefacts).
+
+The CODE is MIT — see LICENSE.
+
+--- What it means for you, plainly ---
+
+Calling the hosted API, or installing and using the picker component, is
+consuming a Produced Work. It imposes nothing on your application. Your app does
+not become ODbL.
+
+Redistributing the DATABASE does trigger share-alike. If you take our dumps, or
+derive a database from them, and publicly use the result, you must offer that
+derived database under ODbL as well.
+
+That distinction is ODbL's, not ours, and it is why the two licences are stated
+separately rather than as one.
+
+--- Sources and their terms ---
+
+  Unicode CLDR                     Unicode Licence      country and language names
+  GeoNames                         CC BY 4.0            place inventory, alternate names
+  dr5hn/countries-states-cities    ODbL-1.0             subdivisions  <- the share-alike source
+  Wikidata                         CC0                  cross-language city labels
+
+Attribution for GeoNames and dr5hn is carried in the README and in the API's
+/attribution endpoint. Every name row records the source it came from, so the
+provenance of any single value can be answered rather than assumed.

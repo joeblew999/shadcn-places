@@ -1,0 +1,9 @@
+node_modules/
+# Staged sources: someone else's data, up to 1.2GB, re-fetchable by `places stage`.
+.stage/
+# Build output is committed for the sample and ignored for the full world build;
+# see docs/ for which artefacts belong in git and why ODbL requires some of them.
+.build/*.ndjson
+!.build/sample/
+.wrangler/
+dist/
