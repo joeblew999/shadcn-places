@@ -312,13 +312,38 @@ function preferredLocale(offered) {
   return offered[0][0]
 }
 
+/**
+ * The reader's own country, the same way the language is chosen.
+ *
+ * This said `country.value = "country:BR"`, which is why the page opened on
+ * Brazil for everybody. It was a demo seed — Brazil has 27 subdivisions and
+ * "Ourinhos" is a satisfying search — and a demo whose argument is *ask about
+ * your own place* should not open on mine.
+ *
+ * `Intl.Locale#maximize` fills in the likely region for a tag that has none, so
+ * `en` becomes `en-Latn-US` and `th` becomes `th-Thai-TH`. The browser usually
+ * supplies the region directly; this is the fallback for the browsers that do not.
+ *
+ * Left unselected if the region is not a country we hold, rather than falling
+ * back to a country I picked.
+ */
+function preferredCountry(offered) {
+  const codes = new Set(offered)
+  for (const tag of navigator.languages ?? [navigator.language ?? "en"]) {
+    let region = tag.split("-")[1]
+    if (!region || region.length !== 2) {
+      try { region = new Intl.Locale(tag).maximize().region } catch { region = undefined }
+    }
+    if (region && codes.has(`country:${region.toUpperCase()}`)) return `country:${region.toUpperCase()}`
+  }
+  return ""
+}
+
 await loadLocales()
 locale.value = preferredLocale(LOCALES)
 await loadCountries()
-country.value = "country:BR"
-await loadSubdivisions()
-q.value = "our"
-searchCities()
+country.value = preferredCountry([...country.options].map((o) => o.value))
+if (country.value) await loadSubdivisions()
 </script>
 
 <script type="module">
