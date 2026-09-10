@@ -16,10 +16,12 @@
 
 import { implement, onError } from "@orpc/server"
 import { RPCHandler } from "@orpc/server/fetch"
-import { CORSPlugin } from "@orpc/server/plugins"
+import { CORSPlugin, BatchHandlerPlugin } from "@orpc/server/plugins"
+import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins"
+import { experimental_ZodSmartCoercionPlugin as ZodSmartCoercionPlugin } from "@orpc/zod/zod4"
+import { EvlogHandlerPlugin } from "@orpc/evlog"
 import { experimental_CloudflareTracer as CloudflareTracer } from "@orpc/cloudflare"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
-import { OpenAPIGenerator } from "@orpc/openapi"
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4"
 import { contract } from "./api/contract.ts"
 import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
@@ -354,19 +356,6 @@ const router = os.router({
 })
 
 /**
- * The OpenAPI document, generated from the same contract the Worker serves.
- *
- * The README has been telling people "there is an OpenAPI document for anything
- * that is not TypeScript" while `/openapi.json` fell through to the service's
- * root document and answered 200 with something that is not a spec. A caller
- * pointing a generator at it would get nothing, from a URL that looked fine.
- *
- * Generated rather than written, so it cannot drift: a contract change is a spec
- * change, and there is no second document to forget.
- */
-const openapiSpec = new OpenAPIGenerator({ converters: [new ZodToJsonSchemaConverter()] })
-
-/**
  * Shared handler options: CORS by plugin, and errors that are actually logged.
  *
  * The CORS headers were fifteen lines of hand-rolled header copying, added after
@@ -398,17 +387,79 @@ const openapiSpec = new OpenAPIGenerator({ converters: [new ZodToJsonSchemaConve
  */
 new CloudflareTracer().enable()
 
-const handlerOptions = {
-  plugins: [new CORSPlugin()],
-  interceptors: [
-    onError((error) => {
-      console.error("orpc", error)
+const zodConverter = new ZodToJsonSchemaConverter()
+
+const errorLogging = [
+  onError((error) => {
+    console.error("orpc", error)
+  }),
+]
+
+/**
+ * The RPC transport: CORS, structured logs, and request batching.
+ *
+ * `EvlogHandlerPlugin({ logAbort: true })` is the pair to `enable_request_signal`.
+ * The flag makes an abandoned request actually abort; this records that it did,
+ * which is the difference between "requests got cheaper" and knowing it.
+ *
+ * `BatchHandlerPlugin` lets a client send several calls in one HTTP request. The
+ * picker's cascade is three sequential calls on a slow connection — country, then
+ * subdivisions, then a search — and a consumer that batches pays one round trip
+ * instead of three. Costs nothing when nobody uses it.
+ */
+const rpc = new RPCHandler(router, {
+  plugins: [new CORSPlugin(), new EvlogHandlerPlugin({ logAbort: true }), new BatchHandlerPlugin()],
+  interceptors: errorLogging,
+})
+
+/**
+ * The HTTP transport, with two plugins that replace things I hand-rolled badly.
+ *
+ * `SmartCoercionPlugin` coerces query strings to the types the schema declares.
+ * `limit` arrived as the string "25" and failed validation — over HTTP only,
+ * because the RPC transport sends real JSON numbers — and I fixed it by putting
+ * `z.coerce` on that one field. This fixes the *class*: every future numeric or
+ * boolean query parameter is handled, rather than the next one failing the same
+ * way and being patched the same way.
+ *
+ * `OpenAPIReferencePlugin` serves the spec and a reference UI as part of the
+ * handler. Mine were two hand-written routes — a generator call and a string of
+ * HTML with a Scalar script tag — sitting outside the thing that knows the
+ * routes. This is the same output from the component that owns it.
+ */
+const openapi = new OpenAPIHandler(router, {
+  plugins: [
+    new CORSPlugin(),
+    new EvlogHandlerPlugin({ logAbort: true }),
+    /**
+     * The Zod-specific coercion plugin, not the generic one.
+     *
+     * `SmartCoercionPlugin` from `@orpc/json-schema` — which is what the oRPC
+     * playground uses — did not coerce anything here: `limit=25` still arrived as
+     * a string and still failed validation. I removed the `z.coerce` workaround on
+     * the assumption it would, and broke the deployed service for two minutes.
+     *
+     * `@orpc/zod/zod4` ships its own, which understands Zod 4 schemas directly.
+     * The `z.coerce` calls stay until this is proven to replace them, and proven
+     * means tested locally rather than assumed from a playground that uses a
+     * different Zod entrypoint.
+     */
+    new ZodSmartCoercionPlugin(),
+    new OpenAPIReferencePlugin({
+      schemaConverters: [zodConverter],
+      specGenerateOptions: {
+        info: {
+          title: "shadcn-places",
+          version: "0.1.0",
+          description:
+            "Countries, states and cities in every language the open data has. " +
+            "Code MIT, data ODbL-1.0 — calling this API imposes nothing on you; redistributing the database does.",
+        },
+      },
     }),
   ],
-}
-
-const rpc = new RPCHandler(router, handlerOptions)
-const openapi = new OpenAPIHandler(router, handlerOptions)
+  interceptors: errorLogging,
+})
 
 /**
  * Read-only, public, and therefore callable from a browser.
@@ -458,6 +509,37 @@ export default {
      * the one URL in the README that a stranger will try first, and it does not
      * fail in any build.
      */
+    /**
+     * An unmatched API path is a 404, not the service document.
+     *
+     * `/api/cities?q=paris` matched no route and fell through to the root, which
+     * answers 200 with a JSON description of the service. A caller who mistypes a
+     * path gets a success and a body that parses — the worst possible response,
+     * because their code carries on and fails somewhere else entirely.
+     *
+     * Found by a test asserting that an unscoped city search is refused. It *is*
+     * refused, by there being no such route; the 200 was the problem.
+     */
+    /**
+     * The URLs the README published, pointing at what the plugin serves.
+     *
+     * `OpenAPIReferencePlugin` puts the spec at `/api/spec.json` and the reference
+     * UI at `/api`, generated by the component that owns the routes. My versions
+     * were two hand-written handlers — a generator call and a string of Scalar
+     * HTML — doing the same job from outside, and the plugin's cannot drift from
+     * the handler because it *is* the handler.
+     *
+     * Redirected rather than deleted: `/openapi.json` and `/docs` went in the
+     * README an hour ago, and a public API that moves its documentation URL a day
+     * after publishing it is not one anybody trusts.
+     */
+    if (url.pathname === "/openapi.json") {
+      return Response.redirect(new URL("/api/spec.json", url).toString(), 301)
+    }
+    if (url.pathname === "/docs") {
+      return Response.redirect(new URL("/api", url).toString(), 301)
+    }
+
     /**
      * An unmatched API path is a 404, not the service document.
      *
@@ -560,8 +642,8 @@ export default {
         rpc: "/rpc",
         openapi: "/api",
         registry: "/r/places-picker.json",
-        openapi: "/openapi.json",
-        docs: "/docs",
+        openapi: "/api/spec.json",
+        docs: "/api",
         licence: { code: "MIT", data: "ODbL-1.0", notice: "/api/attribution/get" },
       },
       { status: 200 },

@@ -124,10 +124,16 @@ export const contract = {
           subdivision: z.string().optional(),
           q: z.string().min(1).max(64),
           locale: Locale.default("en"),
-          // Coerced, because a GET query string carries "25" and not 25. The RPC
-          // transport sends real JSON numbers and validated fine, so this failed
-          // only over HTTP — which is the half a stranger uses first.
-          limit: z.coerce.number().int().min(1).max(50).default(20),
+          /**
+           * A plain number. `SmartCoercionPlugin` turns the query string into one.
+           *
+           * This was `z.coerce.number()` — a patch on the one field that had
+           * failed, after `limit=25` arrived as the string "25" and was rejected
+           * over HTTP while the RPC transport (which sends real JSON numbers) was
+           * fine. The plugin handles the class rather than the instance, so the
+           * next numeric or boolean query parameter does not repeat it.
+           */
+          limit: z.number().int().min(1).max(50).default(20),
         }),
       )
       .output(z.object({ places: z.array(Place) })),
@@ -180,7 +186,7 @@ export const contract = {
            * there. Pass 0 for everything the database holds — 664 locales, which
            * is the right answer for exploring and the wrong one for a dropdown.
            */
-          min: z.coerce.number().int().min(0).max(100).default(50),
+          min: z.number().int().min(0).max(100).default(50),
           /** Which tier the threshold applies to. A picker for cities should ask about cities. */
           tier: z.enum(["country", "subdivision", "city"]).default("country"),
           /** Order: by how many people read it, or alphabetically by endonym. */
@@ -226,7 +232,7 @@ export const contract = {
   matrix: {
     get: oc
       .route({ method: "GET", path: "/matrix" })
-      .input(z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }))
+      .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }))
       .output(
         z.object({
           places: z.record(z.string(), z.number()),
