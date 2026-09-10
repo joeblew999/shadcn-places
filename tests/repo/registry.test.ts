@@ -126,8 +126,17 @@ describe("nothing hardcodes a list of languages", () => {
    * `CLDR_LOCALES` in the extractor is the deliberate exception, and it is about
    * what CLDR *has* rather than what anyone wants. It is named in the allowlist so
    * that adding a second exception is a conscious act.
+   *
+   * `NON_LATIN_SCRIPT` used to be on this list and has been deleted rather than
+   * exempted. It was fifty language codes typed by hand and it was missing
+   * thirty-nine — which is the failure this check exists to catch, sitting inside
+   * the check's own allowlist. The classification is derived now: from the names
+   * themselves where there are enough, and from CLDR below that. What remains is
+   * `SCRIPT_OVERRIDES`, an object of eleven entries that each carry their reason,
+   * and it does not match this pattern because it is not a list of languages —
+   * it is a list of disagreements.
    */
-  const ALLOWED = new Set(["CLDR_LOCALES", "DEFAULT_LOCALES", "NON_LATIN_SCRIPT", "NON_LATIN", "NOT_LANGUAGES"])
+  const ALLOWED = new Set(["CLDR_LOCALES", "DEFAULT_LOCALES", "NOT_LANGUAGES"])
 
   it("has no literal locale array outside the places that declare why", () => {
     const files = execSync("git ls-files 'src/**/*.ts' 'scripts/**/*.ts' 'public/*.html'", {
