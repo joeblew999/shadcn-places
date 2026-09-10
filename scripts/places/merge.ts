@@ -144,14 +144,16 @@ function loadLabels(): Map<string, Name[]> {
     if (!existsSync(path)) continue
     for (const line of readFileSync(path, "utf8").trimEnd().split("\n")) {
       if (!line) continue
-      const row = JSON.parse(line) as { geonameId?: string; placeId?: string; locale: string; value: string }
+      const row = JSON.parse(line) as { geonameId?: string; placeId?: string; locale: string; value: string; source?: string }
       // `placeId` is the current field; `geonameId` is what the first version of
       // the city pass wrote, and a run from before this change should still fold in
       // rather than being silently ignored.
       const id = row.placeId ?? (row.geonameId ? `city:${row.geonameId}` : "")
       if (!id) continue
       const list = out.get(id) ?? []
-      list.push({ locale: row.locale, value: row.value, source: "wikidata", kind: "translated" })
+      // The source travels with the row where the file records one — OSM and
+      // Wikidata both land here and an attribution line has to tell them apart.
+      list.push({ locale: row.locale, value: row.value, source: row.source ?? "wikidata", kind: "translated" })
       out.set(id, list)
     }
   }

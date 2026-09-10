@@ -38,8 +38,12 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "diff [tier...]                what a rebuild changed against the published data",
     run: async (argv) => (await import("./places/diff.ts")).diff(argv),
   },
+  osm: {
+    help: "osm [--refresh] [--extract-only] [CC...]   city names from OpenStreetMap, matched by coordinate",
+    run: async (argv) => (await import("./places/osm.ts")).osm(argv),
+  },
   load: {
-    help: "load                          write .build/load.sql for `wrangler d1 execute --file`",
+    help: "load [--delta]                 write .build/load.sql; --delta touches only what changed",
     run: async (argv) => (await import("./places/load.ts")).load(argv),
   },
   speakers: {

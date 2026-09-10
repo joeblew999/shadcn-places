@@ -151,7 +151,24 @@ export async function labels(argv: string[]): Promise<void> {
    * Named by the locales it covers, so re-running the same set replaces its own
    * output and a different set sits beside it. The merge reads the directory.
    */
-  const slug = [...locales].sort().join("-").slice(0, 80)
+  /**
+   * Named by a hash of the locale set, not by the set itself truncated.
+   *
+   * The first fix for the overwrite bug joined the locales and cut the result at
+   * eighty characters — so two different sets whose first eighty characters match
+   * produce the same filename and clobber each other. A thirty-language run
+   * overwrote a twenty-five-language one *again*, silently, because `zh`, `vi`,
+   * `wuu` and `yue` sort late and fell off the end of the name.
+   *
+   * Same failure as before, one layer down, and the lesson is the same: a
+   * truncated identifier is not an identifier. The readable part is kept as a
+   * prefix so the directory is still browsable, and the hash is what makes it
+   * unique.
+   */
+  const key = [...locales].sort().join(",")
+  let hash = 0
+  for (let i = 0; i < key.length; i++) hash = (Math.imul(31, hash) + key.charCodeAt(i)) | 0
+  const slug = `${locales.length}langs-${(hash >>> 0).toString(36)}-${[...locales].sort().slice(0, 4).join("-")}`
   const out = ndjsonWriter(join(OUT, "labels", `${tier === "subdivisions" ? "subdivision" : "city"}-${slug}.ndjson`))
   let found = 0
   let skipped = 0
@@ -163,8 +180,39 @@ export async function labels(argv: string[]): Promise<void> {
   const langFilter = locales.map((l) => `"${l}"`).join(", ")
 
   const work = tier === "subdivisions" ? qids : ids
-  for (let i = 0; i < work.length; i += BATCH) {
-    const slice = work.slice(i, i + BATCH)
+
+  /**
+   * Batches in flight at once.
+   *
+   * This ran one request at a time: 279 queries for 69,700 cities, two seconds
+   * each against a remote endpoint, ten minutes per pass — and a pass is the
+   * thing you re-run every time a language is added. Almost all of that was
+   * waiting.
+   *
+   * Six is deliberate rather than maximal. Wikidata's query service is free,
+   * shared and asks callers to be reasonable; the aim is to stop wasting the
+   * wall-clock, not to extract everything the endpoint will give. Six takes it to
+   * under two minutes and stays a polite neighbour.
+   */
+  const CONCURRENCY = Number(process.env.PLACES_LABEL_CONCURRENCY ?? 6)
+
+  const batches: string[][] = []
+  for (let i = 0; i < work.length; i += BATCH) batches.push(work.slice(i, i + BATCH))
+
+  let done = 0
+  /**
+   * A worker pool over a shared cursor, rather than chunked `Promise.all`.
+   *
+   * Chunking makes every group wait for its slowest member, and SPARQL response
+   * times vary by an order of magnitude — one slow batch stalls five idle
+   * workers. Pulling from a cursor keeps all six busy until the work runs out.
+   */
+  let cursor = 0
+  const worker = async () => {
+    for (;;) {
+      const index = cursor++
+      if (index >= batches.length) return
+      const slice = batches[index]
     let query: string
     let backToId: (key: string) => string
     if (tier === "subdivisions") {
@@ -200,9 +248,11 @@ export async function labels(argv: string[]): Promise<void> {
       found++
       out.write({ geonameId: placeId.replace(/^city:/, ""), placeId, locale, value })
     }
-    const done = Math.min(i + BATCH, work.length)
-    process.stdout.write(`\r  ${done}/${work.length} ${tier} · ${found.toLocaleString()} labels`)
+      done += slice.length
+      process.stdout.write(`\r  ${Math.min(done, work.length)}/${work.length} ${tier} · ${found.toLocaleString()} labels`)
+    }
   }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker))
   await out.close()
 
   const written = join(OUT, "labels", `${tier === "subdivisions" ? "subdivision" : "city"}-${slug}.ndjson`)

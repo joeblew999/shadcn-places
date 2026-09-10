@@ -20,6 +20,9 @@
 
 import { join } from "node:path"
 import { createWriteStream, mkdirSync } from "node:fs"
+import { gunzipSync } from "node:zlib"
+import { existsSync, readFileSync } from "node:fs"
+import { resolve as resolvePath } from "node:path"
 import { records } from "../lib/ndjson.ts"
 import type { MergedPlace } from "./merge.ts"
 
@@ -31,9 +34,33 @@ const q = (v: string) => `'${v.replace(/'/g, "''")}'`
 const n = (v: number | null | undefined) => (v === undefined || v === null || Number.isNaN(v) ? "NULL" : String(v))
 const s = (v: string | null | undefined) => (v === undefined || v === null || v === "" ? "NULL" : q(v))
 
+/**
+ * What the last publish held, keyed by place, as a comparable string per name.
+ *
+ * The basis for a delta. `data/` is what we last vouched for and what the diff
+ * already compares against, so reusing it costs nothing and cannot drift from the
+ * thing being compared.
+ */
+function publishedNames(tier: string): Map<string, string> | null {
+  const path = resolvePath(import.meta.dirname, "../..", "data", `${tier}.ndjson.gz`)
+  if (!existsSync(path)) return null
+  const out = new Map<string, string>()
+  for (const line of gunzipSync(readFileSync(path)).toString("utf8").trimEnd().split("\n")) {
+    if (!line) continue
+    const p = JSON.parse(line) as MergedPlace
+    // Order-independent so a reshuffle is not mistaken for a change.
+    out.set(
+      p.id,
+      p.names.map((n) => `${n.locale}\u0001${n.value}\u0001${n.kind}\u0001${n.source}`).sort().join("\u0002"),
+    )
+  }
+  return out
+}
+
 export async function load(argv: string[]): Promise<void> {
   const tiers = argv.filter((a) => !a.startsWith("--"))
   const wanted = tiers.length ? tiers : ["countries", "subdivisions", "cities"]
+  const delta = argv.includes("--delta")
   mkdirSync(OUT, { recursive: true })
   const path = join(OUT, "load.sql")
   const out = createWriteStream(path)
@@ -58,10 +85,15 @@ export async function load(argv: string[]): Promise<void> {
    */
   // Idempotent: re-running a load must replace rather than accumulate, or a
   // refresh doubles the table and every count silently becomes wrong.
-  out.write("DELETE FROM coverage;\nDELETE FROM name;\nDELETE FROM place;\n\n")
+  // A delta leaves `place` alone — places change far less often than names, and
+  // deleting them would cascade into every name row we are trying not to touch.
+  // `coverage` is always rebuilt: it is derived, small, and wrong if stale.
+  out.write(delta ? "DELETE FROM coverage;\n\n" : "DELETE FROM coverage;\nDELETE FROM name;\nDELETE FROM place;\n\n")
 
   let places = 0
   let names = 0
+  let changed = 0
+  let unchanged = 0
   const flush = (table: string, columns: string, rows: string[]) => {
     if (!rows.length) return
     out.write(`INSERT INTO ${table} (${columns}) VALUES\n${rows.join(",\n")};\n`)
@@ -87,6 +119,7 @@ export async function load(argv: string[]): Promise<void> {
       placeRows.push(
         `(${q(p.id)},${q(p.type)},${q(p.pivot)},${s(p.parent)},${s(p.country)},${n(p.lat)},${n(p.lon)},${n(p.population)},${s(p.wikidata)})`,
       )
+      if (delta) { placeRows.length = 0; continue }
       if (placeRows.length >= BATCH) {
         flush("place", "id,type,pivot,parent_id,country_code,lat,lon,population,wikidata_id", placeRows)
       }
@@ -96,7 +129,31 @@ export async function load(argv: string[]): Promise<void> {
 
   const nameRows: string[] = []
   for (const tier of wanted) {
+    /**
+     * In delta mode, only places whose names actually moved.
+     *
+     * A full load rewrites 1.2 million name rows and five million row-writes to
+     * remote D1 — three to six minutes — to add names for a handful of languages.
+     * Almost every row is identical to the one it replaces.
+     *
+     * So compare against the last publish and touch only what changed. The
+     * DELETEs are per place rather than table-wide, which is what makes this a
+     * delta rather than a smaller full load.
+     */
+    const before = delta ? publishedNames(tier) : null
+    if (delta && !before) {
+      console.log(`  ${tier}: nothing published to compare against — writing in full`)
+    }
     for await (const p of records<MergedPlace>(join(OUT, `${tier}.merged.ndjson`))) {
+      if (before) {
+        const now = p.names
+          .map((n) => `${n.locale}\u0001${n.value}\u0001${n.kind}\u0001${n.source}`)
+          .sort()
+          .join("\u0002")
+        if (before.get(p.id) === now) { unchanged++; continue }
+        changed++
+        out.write(`DELETE FROM name WHERE place_id = ${q(p.id)};\n`)
+      }
       for (const nm of p.names) {
         names++
         nameRows.push(`(${q(p.id)},${q(nm.locale)},${q(nm.value)},${q(nm.source)},${q(nm.kind)})`)
@@ -125,7 +182,12 @@ SELECT n.locale, p.type, COUNT(*),
   out.write("\n-- no COMMIT: see the note above on remote D1 and transactions\n")
   await new Promise<void>((resolve) => out.end(resolve))
 
-  console.log(`  ${places.toLocaleString()} places, ${names.toLocaleString()} names → ${path}`)
+  if (delta) {
+    console.log(`  delta: ${changed.toLocaleString()} places changed, ${unchanged.toLocaleString()} untouched`)
+    console.log(`  ${names.toLocaleString()} name rows to write → ${path}`)
+  } else {
+    console.log(`  ${places.toLocaleString()} places, ${names.toLocaleString()} names → ${path}`)
+  }
   console.log("\nApply it with:")
   console.log("  wrangler d1 execute places --local  --file=.build/load.sql")
   console.log("  wrangler d1 execute places --remote --file=.build/load.sql")
