@@ -101,8 +101,11 @@
   </section>
 
   <section>
-    <h2>What this language actually has</h2>
-    <table><thead><tr><th>Tier</th><th>Rows</th><th>Named</th><th>Genuinely translated</th></tr></thead>
+    <h2 id="coverage-title">What this language actually has</h2>
+    <p class="note" id="coverage-note"></p>
+    <table><thead><tr>
+      <th></th><th>Everywhere</th><th id="diagonal-head">In this country</th>
+    </tr></thead>
     <tbody id="coverage"></tbody></table>
     <p class="note">
       Two numbers, never one. <b>Named</b> counts any name at all; <b>translated</b> excludes the
@@ -266,22 +269,66 @@ async function loadHeat() {
     `Green is 70%+, amber 30–70%, red below. Countries are complete everywhere; cities are where the work is.`
 }
 
+/**
+ * Both numbers, side by side, because one alone has misled us five times.
+ *
+ * Worldwide coverage for a language spoken in one place is the single most
+ * misleading figure this service produces. Thai cities are 17% of the world and
+ * 89% of Thailand. Hindi cities are 17% of the world and 54% of India. Reading
+ * the first as "not good enough" is a mistake now made four times in the docs and
+ * a fifth time out loud.
+ *
+ * Written as "54% of 6,532" rather than a percentage in one column and a count in
+ * another. The first version split them and produced a two-row header with empty
+ * cells that nobody could read — a table that is technically correct and has to be
+ * decoded is not showing anybody anything.
+ */
 async function loadCoverage() {
-  const { tiers } = await get(`/coverage/${locale.value}`)
-  const order = { country: 0, subdivision: 1, city: 2 }
+  const code = country.value.replace("country:", "")
+  const [world, here] = await Promise.all([
+    get(`/coverage/${locale.value}`),
+    code ? get(`/coverage/${locale.value}?country=${code}`) : Promise.resolve({ tiers: [] }),
+  ])
+  const byTier = new Map(here.tiers.map((t) => [t.type, t]))
+  const language = (LOCALES.find(([c]) => c === locale.value) ?? [, locale.value])[1]
+  const place = code ? (country.selectedOptions[0]?.text ?? "").replace(/\s*·\s*$/, "").trim() : ""
+
+  $("diagonal-head").textContent = place ? `In ${place}` : "Pick a country above"
+  $("coverage-title").textContent = `What ${language} actually has`
+
+  /**
+   * Which of the two figures means anything depends on the script.
+   *
+   * For a Latin-script language the romanised fallback usually IS the right word
+   * — Sao Paulo is Sao Paulo in Spanish — so `named` is the honest number. For
+   * every other script a Latin string is unreadable, so it is `translated`. The
+   * service returns `latinScript` precisely so a caller need not guess.
+   */
+  const read = (t) => (world.latinScript ? t.named : t.translated)
+  $("coverage-note").textContent = world.latinScript
+    ? `${language} is written in Latin letters, so a name identical to the English one is usually correct. These count any name.`
+    : `${language} is not written in Latin letters, so a name identical to the English one is a gap. These count only real translations.`
+
+  // Plain words: "subdivision" is what the database calls them and not what
+  // anybody else does.
+  const LABEL = {
+    country: ["Countries", 0],
+    subdivision: ["States & provinces", 1],
+    city: ["Cities & towns", 2],
+  }
   const body = $("coverage")
   body.innerHTML = ""
-  for (const t of tiers.sort((a, b) => order[a.type] - order[b.type])) {
-    const pct = (v) => `${Math.round((v / t.total) * 100)}%`
+  for (const t of world.tiers.sort((a, b) => LABEL[a.type][1] - LABEL[b.type][1])) {
+    const local = byTier.get(t.type)
+    const cell = (x) => (x && x.total ? `${Math.round((read(x) / x.total) * 100)}% of ${x.total.toLocaleString()}` : "—")
     const tr = document.createElement("tr")
-    tr.innerHTML = `<td>${t.type}</td><td>${t.total.toLocaleString()}</td>` +
-      `<td>${pct(t.named)}</td><td>${pct(t.translated)}</td>`
+    tr.innerHTML = `<td>${LABEL[t.type][0]}</td><td>${cell(t)}</td><td><b>${cell(local)}</b></td>`
     body.append(tr)
   }
 }
 
 locale.addEventListener("change", loadCountries)
-country.addEventListener("change", loadSubdivisions)
+country.addEventListener("change", () => { loadSubdivisions(); loadCoverage() })
 subdivision.addEventListener("change", searchCities)
 q.addEventListener("input", searchCities)
 
@@ -343,7 +390,17 @@ await loadLocales()
 locale.value = preferredLocale(LOCALES)
 await loadCountries()
 country.value = preferredCountry([...country.options].map((o) => o.value))
+/**
+ * Coverage last, because it reads the country selection.
+ *
+ * `loadCountries()` calls it too, and at startup that call happens *before* the
+ * country is chosen — so the "In <country>" column rendered as "—" with Australia
+ * plainly selected in the dropdown above it. The table was correct about a
+ * selection that had not been made yet, which is the most confusing kind of
+ * correct.
+ */
 if (country.value) await loadSubdivisions()
+await loadCoverage()
 </script>
 
 <script type="module">

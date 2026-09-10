@@ -261,10 +261,32 @@ export const contract = {
   coverage: {
     get: oc
       .meta(openapi({ method: "GET", path: "/coverage/{locale}" }))
-      .input(z.object({ locale: Locale }))
+      .input(
+        z.object({
+          locale: Locale,
+          /**
+           * Scope the answer to one country — the **diagonal**.
+           *
+           * The single most misleading number this service produces is worldwide
+           * coverage for a language spoken in one place. Hindi cities are 17% of
+           * the world and **54% of India**; Thai cities are 17% of the world and
+           * 89% of Thailand. Both figures are true and they mean opposite things,
+           * and quoting the wrong one has misled somebody five times — four of
+           * them recorded in `docs/`, and the fifth by me telling the Product
+           * Owner that 17% decided whether this service was adoptable.
+           *
+           * Optional, because "how good is your Hindi" and "how good is your
+           * Hindi in India" are different questions and only the caller knows
+           * which one they are asking.
+           */
+          country: z.string().length(2).optional(),
+        }),
+      )
       .output(
         z.object({
           locale: z.string(),
+          /** The country the figures are scoped to, or absent for worldwide. */
+          country: z.string().nullable(),
           /**
            * Whether this locale is written in Latin script — and therefore which
            * number above is the one to read.

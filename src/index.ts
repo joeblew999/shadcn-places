@@ -428,6 +428,54 @@ const router = os.router({
        */
       // Two rows per tier from the precomputed table, plus the place totals,
       // instead of a left join across every name in the database.
+      /**
+       * Scoped to one country when asked — and that path cannot use the
+       * precomputed table.
+       *
+       * `coverage` is keyed by (locale, type) with no country dimension, because
+       * adding one would multiply it by 250 to answer a question most callers do
+       * not ask. So the diagonal is computed live, and it is affordable for the
+       * same reason the city search is: `country_code` + `type` is an index, so
+       * India's 6,532 cities are 6,532 rows read rather than 69,700.
+       */
+      if (input.country) {
+        const country = input.country.toUpperCase()
+        /**
+         * `country_code` is null on a country row, so the country itself has to be
+         * matched by id.
+         *
+         * Without this the scoped answer had no `country` tier at all and the
+         * table rendered "Countries — —" beside a country that was plainly
+         * selected. The honest answer is "1 of 1, named or not": whether India is
+         * called भारत in Hindi is a real question, and it is the only one this
+         * column can ask about countries.
+         */
+        const rows = await context.env.DB.prepare(
+          `SELECT p.type,
+                  COUNT(DISTINCT p.id) total,
+                  COUNT(n.place_id) named,
+                  SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END) translated
+             FROM place p
+             LEFT JOIN name n ON n.place_id = p.id AND n.locale IN (?, ?)
+            WHERE p.country_code = ? OR p.id = ?
+            GROUP BY p.type`,
+        )
+          .bind(locale, base, country, `country:${country}`)
+          .all<{ type: string; total: number; named: number; translated: number }>()
+        const english = isEnglish(input.locale)
+        return {
+          locale: input.locale,
+          country,
+          latinScript: isLatinLocale(locale) && isLatinLocale(base),
+          tiers: rows.results.map((r) => ({
+            type: r.type,
+            total: r.total,
+            named: english ? r.total : r.named,
+            translated: english ? r.total : r.translated,
+          })),
+        }
+      }
+
       const totals = await context.env.DB.prepare(`SELECT type, COUNT(*) n FROM place GROUP BY type`)
         .all<{ type: string; n: number }>()
       const cov = await context.env.DB.prepare(
@@ -461,6 +509,7 @@ const router = os.router({
       }))
       return {
         locale: input.locale,
+        country: null,
         /**
          * From the database where we hold names for this locale, and only from
          * `Intl` when we do not.
