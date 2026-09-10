@@ -99,7 +99,10 @@ export const contract = {
           subdivision: z.string().optional(),
           q: z.string().min(1).max(64),
           locale: Locale.default("en"),
-          limit: z.number().int().min(1).max(50).default(20),
+          // Coerced, because a GET query string carries "25" and not 25. The RPC
+          // transport sends real JSON numbers and validated fine, so this failed
+          // only over HTTP — which is the half a stranger uses first.
+          limit: z.coerce.number().int().min(1).max(50).default(20),
         }),
       )
       .output(z.object({ places: z.array(Place) })),

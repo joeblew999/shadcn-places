@@ -26,6 +26,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "merge                         resolve names per (place, locale) by kind precedence",
     run: async (argv) => (await import("./places/merge.ts")).merge(argv),
   },
+  score: {
+    help: "score [candidate...] [--locales=a,b]   would a third-party dataset serve these languages?",
+    run: async (argv) => (await import("./places/score.ts")).score(argv),
+  },
   labels: {
     help: "labels [--country=BR] [--limit=N] [--locales=a,b]   city names from Wikidata, joined on P1566",
     run: async (argv) => (await import("./places/labels.ts")).labels(argv),

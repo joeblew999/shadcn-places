@@ -74,11 +74,42 @@ function expand(zip: string): string {
  * English. A locale that looks configured and silently renders the wrong language
  * is the worst failure mode available.
  */
+/**
+ * Region codes ICU will happily name that are not countries anyone picks from.
+ *
+ * Enumerating every two-letter code and keeping whatever CLDR names produces a
+ * list with Germany in it twice — once as DE and once as DD, East Germany — plus
+ * Serbia three times, the Euro zone, the United Nations, and two pseudo-locales
+ * used for testing that render as 疑似アクセント. It looked fine in a JSON
+ * response and was obvious the moment a human opened the dropdown.
+ *
+ * Two groups, and they are excluded for different reasons:
+ *
+ *   Deprecated ISO codes still carried by CLDR for historical data — every one of
+ *   these is a synonym for a country already in the list, so keeping them is a
+ *   duplicate rather than a country.
+ *
+ *   Groupings and non-countries — organisations, currency unions, an unknown
+ *   region, and the two pseudo-locales.
+ *
+ * `tests/repo/data.test.ts` holds the invariant this exists to produce: no two
+ * countries share a name. A list that grows a duplicate again fails there rather
+ * than in somebody's dropdown.
+ */
+const NOT_A_COUNTRY = new Set([
+  // Deprecated ISO 3166-1 codes: synonyms for a country already present.
+  "AN","BU","CS","CT","DD","DY","FQ","FX","HV","JT","MI","NH","NQ","NT","PC","PU",
+  "PZ","RH","SU","TP","UK","VD","WK","YD","YU","ZR",
+  // Groupings, organisations and test regions — never a place a person is in.
+  "EU","EZ","UN","QO","ZZ","XA","XB",
+])
+
 function* countries(): Generator<Place> {
   const codes: string[] = []
   for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) codes.push(String.fromCharCode(a, b))
   const english = new Intl.DisplayNames(["en"], { type: "region", fallback: "none" })
   for (const code of codes) {
+    if (NOT_A_COUNTRY.has(code)) continue
     const pivot = english.of(code)
     if (!pivot) continue
     const names: Name[] = []

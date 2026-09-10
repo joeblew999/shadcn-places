@@ -222,6 +222,14 @@ export default {
       return Response.json({ error: "no such registry item", tried: asset.pathname }, { status: 404 })
     }
 
+    // The demo is the front page. A service whose root is a JSON document is a
+    // service people evaluate by reading rather than by trying, and trying is
+    // where the honest bits — the romanised markers, the coverage table — land.
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      const page = await env.REGISTRY.fetch(new Request(new URL("/index.html", url), request))
+      if (page.status !== 404) return page
+    }
+
     return Response.json(
       {
         service: "shadcn-places",

@@ -6,9 +6,10 @@ compatibility_date = "2026-09-10"
 compatibility_flags = ["nodejs_compat"]
 
 # The registry items are files, not routes. Served from /r/ so the install URL in
-# the README is the URL that works.
+# the README is the URL that works. The demo rides along in the same directory —
+# a service whose front page is a JSON blob is one people close.
 [assets]
-directory = "registry"
+directory = "public"
 binding = "REGISTRY"
 
 [[d1_databases]]
