@@ -37,6 +37,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
 import { entriesFromUrl, openEntry, type ZipEntry } from "./zip.ts"
 import { lines, parseAlternateName, parseCityRow, type RawName } from "./geonames.ts"
+import { PARTITIONS, partitionOf, namesKey } from "./partition.ts"
 
 interface Env {
   ARCHIVE: R2Bucket
@@ -59,7 +60,6 @@ const DUMP = "https://download.geonames.org/export/dump"
 /** Where staged output lives in R2. Prefixed so a listing is legible. */
 const key = {
   places: (tier: string) => `stage/${tier}.ndjson`,
-  names: (part: number) => `stage/city-names-${String(part).padStart(3, "0")}.ndjson`,
   manifest: "stage/manifest.json",
 }
 
@@ -173,11 +173,29 @@ export class StageSources extends WorkflowEntrypoint<Env, Params> {
             byId.set(row.geonameId, list)
             taken++
           }
-          const body: string[] = []
+          /**
+           * Written into the partition the merge will look for it in.
+           *
+           * This used to write one file per slice-of-the-source, so every merge
+           * partition read every file and discarded nine tenths — 322MB of JSON
+           * parsed to do 32MB of work. It survived the first run because that
+           * stage was limited to ~3MB of names, and hit the 30-second CPU wall
+           * the moment it saw the real 26.2MB.
+           *
+           * The writer partitions now, so the reader reads one slice.
+           */
+          const buckets: string[][] = Array.from({ length: PARTITIONS }, () => [])
           for (const [geonameId, names] of byId) {
-            body.push(JSON.stringify({ placeId: `city:${geonameId}`, names }))
+            const placeId = `city:${geonameId}`
+            buckets[partitionOf(placeId)].push(JSON.stringify({ placeId, names }))
           }
-          if (body.length) await this.env.ARCHIVE.put(key.names(part), body.join("\n") + "\n")
+          let written = 0
+          for (let p = 0; p < PARTITIONS; p++) {
+            if (!buckets[p].length) continue
+            await this.env.ARCHIVE.put(namesKey(p, part), buckets[p].join("\n") + "\n")
+            written += buckets[p].length
+          }
+          const body = { length: written }
           if (wikidata.length) await this.env.ARCHIVE.put(`stage/city-wikidata-${String(part).padStart(3, "0")}.tsv`, wikidata.join("\n"))
           return { seen, taken, places: body.length, exhausted: seen <= from + LINES_PER_STEP }
         },

@@ -56,6 +56,12 @@ export { RefreshNames } from "./refresh.ts"
 export { StageSources } from "./etl/stage.ts"
 
 /**
+ * The ETL's bottom half: merge, load, import. With `StageSources` above it the
+ * loop closes — sources to served database, no laptop anywhere in it.
+ */
+export { BuildDatabase } from "./etl/build.ts"
+
+/**
  * `Env` is generated from wrangler.jsonc by `bun run types`, not written here.
  *
  * It used to be four hand-maintained lines, which meant a binding could be added

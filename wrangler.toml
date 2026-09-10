@@ -52,6 +52,16 @@ name = "stage-sources"
 binding = "STAGE"
 class_name = "StageSources"
 
+# Merge, load and import. Partitioned by place id so each step holds a tenth of
+# the data — 128MB per isolate is the whole design constraint here.
+#
+# Not on a schedule either: importing blocks the database while it runs, so it is
+# a deliberate act rather than a rhythm.
+[[workflows]]
+name = "build-database"
+binding = "BUILD"
+class_name = "BuildDatabase"
+
 # Sunday, early. Nothing about this is urgent and the endpoints it leans on are
 # other people's volunteer infrastructure — off-peak is simple politeness.
 [triggers]
@@ -66,6 +76,19 @@ bucket_name = "shadcn-places-archive"
 [observability]
 enabled = true
 
+# Invocation logs, which are off by default and are the ones that matter here.
+#
+# Without them a Workflow step that is killed at the CPU limit leaves nothing
+# queryable: `wrangler tail` shows live *requests* and returned zero lines for a
+# stalled Workflow, and the dashboard summary said "2 requests killed at 30
+# seconds of CPU" with no way to ask which step. That summary is how the CPU wall
+# was found at all, and it took a human reading a dashboard.
+#
+# With these on, the same failure is a query — outcome, CPU time and the step that
+# spent it — against the Workers Observability API.
+[observability.logs]
+invocation_logs = true
+
 # Per-procedure spans, through the Workers custom-spans API rather than an
 # OpenTelemetry SDK.
 #
@@ -76,8 +99,21 @@ enabled = true
 [observability.traces]
 enabled = true
 
-# Cities are 152,970 rows and the picker queries on every keystroke, so the
-# refresh job is the only thing here that needs a long CPU budget. The default
-# 30s is right for serving.
+# Five minutes, up from the 30-second default — and there was already a [limits]
+# table here saying the opposite, which is how the second one got written.
+#
+# The old comment read: "the refresh job is the only thing here that needs a long
+# CPU budget. The default 30s is right for serving." Both halves are now wrong.
+# The ETL runs here too, and the merge's partitions were killed at exactly that
+# 30-second wall — surfacing as "2 requests killed at 30 seconds of CPU" in a
+# dashboard rather than as a failing step.
+#
+# This is headroom, not the fix. The fix was making each merge partition read a
+# tenth of the input instead of all of it. Raising the ceiling on a design that
+# wasted 10x would only have moved the wall.
+#
+# Costs nothing when unused: CPU is billed on what is consumed, not on what is
+# allowed. 30 million ms are included per month and a full ETL run spends a few
+# hundred thousand.
 [limits]
-cpu_ms = 30000
+cpu_ms = 300000
