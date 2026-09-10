@@ -12,6 +12,10 @@
     "strict": true,
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
+    // Without this, `import x from "./missing.json"` typechecks and fails at
+    // build. It did exactly that: tsc was clean and wrangler could not resolve
+    // the file, which is the wrong order to find out.
+    "resolveJsonModule": true,
     "types": ["@types/node"]
   },
   // `src/web` is excluded on purpose. A registry item is a file that gets copied

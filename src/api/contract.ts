@@ -140,6 +140,48 @@ export const contract = {
   },
 
   /**
+   * The whole matrix, and what each gap costs in readers.
+   *
+   * `/coverage/{locale}` answers "how good is your Thai". This answers the
+   * question behind it: **what does this service have and not have, and what
+   * should be fixed next.**
+   *
+   * Served rather than only printed because the ETL is not the only thing that
+   * needs to know. A consumer deciding which languages to offer, a dashboard, and
+   * the next person improving the data are all asking the same question, and only
+   * one of them can run a CLI.
+   *
+   * Ranked by readers × places unnamed. "69,700 places missing" is identical for
+   * Khmer and Hindi and they are not the same problem — seventeen million readers
+   * against three hundred and sixty-five. Reader counts come from CLDR's
+   * `territoryInfo`, with literacy applied, because a place name is read.
+   */
+  matrix: {
+    get: oc
+      .route({ method: "GET", path: "/matrix" })
+      .input(z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }))
+      .output(
+        z.object({
+          places: z.record(z.string(), z.number()),
+          gaps: z.array(
+            z.object({
+              locale: z.string(),
+              tier: z.string(),
+              /** Percent of places in this tier with a name a reader of this language can use. */
+              coverage: z.number(),
+              /** How many places that leaves unnamed. */
+              missing: z.number(),
+              /** Literate readers, from CLDR. Zero means CLDR has no estimate, not none. */
+              readers: z.number(),
+              /** Where those readers are — the territories whose places matter most for this gap. */
+              where: z.array(z.string()),
+            }),
+          ),
+        }),
+      ),
+  },
+
+  /**
    * Coverage per locale, served rather than only printed.
    *
    * So that a team deciding whether to offer Swahili can ask this service instead

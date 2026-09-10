@@ -17,7 +17,7 @@ import { existsSync, readFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { tsv, jsonArray, ndjsonWriter } from "../lib/ndjson.ts"
-import { NOT_LANGUAGES, type Kind } from "../lib/sources.ts"
+import { NOT_LANGUAGES, isLanguageTag, type Kind } from "../lib/sources.ts"
 
 const STAGE = process.env.PLACES_STAGE ?? ".stage"
 const OUT = process.env.PLACES_OUT ?? ".build"
@@ -198,7 +198,7 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
         if (!key.startsWith("name:") || !value) continue
         // `name:prefix:xx` and similar are qualified variants, not plain names.
         const locale = key.slice("name:".length)
-        if (locale.includes(":")) continue
+        if (locale.includes(":") || !isLanguageTag(locale)) continue
         names.push({ locale, value, source: "osm", kind: "translated" })
       }
       if (names.length) fromOsm.set(id, names)
@@ -213,7 +213,7 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
       const [, geonameId, lang, value] = r
       if (!geonameId || !value || !lang) continue
       const id = idOf.get(geonameId)
-      if (!id || NOT_LANGUAGES.has(lang)) continue
+      if (!id || !isLanguageTag(lang)) continue
       const list = fromGeoNames.get(id) ?? []
       list.push({ locale: lang, value, source: "geonames", kind: "translated" })
       fromGeoNames.set(id, list)
@@ -269,7 +269,7 @@ async function* cities(files: Record<string, { file: string }>): AsyncGenerator<
       const [, geonameId, lang, value] = r
       if (!geonameId || !value) continue
       if (lang === "wkdt") { wikidata.set(geonameId, value); continue }
-      if (!lang || NOT_LANGUAGES.has(lang)) continue
+      if (!isLanguageTag(lang)) continue
       const list = byId.get(geonameId) ?? []
       list.push({ locale: lang, value, source: "geonames", kind: "translated" })
       byId.set(geonameId, list)

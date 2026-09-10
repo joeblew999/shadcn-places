@@ -19,7 +19,7 @@
  *     string while every completeness check passed.
  */
 
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join, resolve as resolvePath } from "node:path"
 import { records, ndjsonWriter } from "../lib/ndjson.ts"
 import { KIND_RANK, NON_LATIN_SCRIPT, isLatinScript, type Kind } from "../lib/sources.ts"
@@ -132,8 +132,15 @@ export function resolve(place: Place, overrides: Overrides = {}): Resolved[] {
  */
 function loadLabels(): Map<string, Name[]> {
   const out = new Map<string, Name[]>()
-  for (const tier of ["city", "subdivision"]) {
-    const path = join(OUT, `${tier}-labels.ndjson`)
+  // Every label file, from every run. They are keyed by the locale set they
+  // cover, so several coexist and each replaces only itself.
+  const dir = join(OUT, "labels")
+  const files = [
+    ...(existsSync(dir) ? readdirSync(dir).map((f) => join(dir, f)) : []),
+    // The single-file form the first version wrote, so an older build still folds in.
+    ...["city", "subdivision"].map((t) => join(OUT, `${t}-labels.ndjson`)),
+  ]
+  for (const path of files) {
     if (!existsSync(path)) continue
     for (const line of readFileSync(path, "utf8").trimEnd().split("\n")) {
       if (!line) continue

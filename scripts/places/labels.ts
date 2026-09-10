@@ -117,7 +117,20 @@ export async function labels(argv: string[]): Promise<void> {
   console.log(`  ${count.toLocaleString()} ${tier}, ${locales.length} languages, batches of ${BATCH}`)
   console.log(`  joined on ${tier === "subdivisions" ? "the QID dr5hn supplies" : "P1566 — Wikidata's GeoNames id"}, so no name matching is involved\n`)
 
-  const out = ndjsonWriter(join(OUT, `${tier === "subdivisions" ? "subdivision" : "city"}-labels.ndjson`))
+  /**
+   * One file per locale set, not one file overwritten.
+   *
+   * The first version wrote `city-labels.ndjson` and truncated it. So a second
+   * run for a different set of languages — exactly what the coverage matrix tells
+   * you to do — silently discarded the first. Twenty-five languages of labels were
+   * replaced by fourteen, and nothing said so: the merge simply folded in fewer
+   * names and the counts went down.
+   *
+   * Named by the locales it covers, so re-running the same set replaces its own
+   * output and a different set sits beside it. The merge reads the directory.
+   */
+  const slug = [...locales].sort().join("-").slice(0, 80)
+  const out = ndjsonWriter(join(OUT, "labels", `${tier === "subdivisions" ? "subdivision" : "city"}-${slug}.ndjson`))
   let found = 0
   let skipped = 0
   // Commas, not spaces. `VALUES` wants a space-separated list and `IN()` wants a
@@ -170,7 +183,7 @@ export async function labels(argv: string[]): Promise<void> {
   }
   await out.close()
 
-  const written = join(OUT, `${tier === "subdivisions" ? "subdivision" : "city"}-labels.ndjson`)
+  const written = join(OUT, "labels", `${tier === "subdivisions" ? "subdivision" : "city"}-${slug}.ndjson`)
   console.log(`\n\n  ${found.toLocaleString()} labels → ${written}`)
   if (skipped) {
     console.log(`  ${skipped.toLocaleString()} cities were not reached. They are absent from the output,`)

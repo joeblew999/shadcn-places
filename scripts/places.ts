@@ -42,6 +42,14 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "load                          write .build/load.sql for `wrangler d1 execute --file`",
     run: async (argv) => (await import("./places/load.ts")).load(argv),
   },
+  speakers: {
+    help: "speakers [--refresh]          literate readers per language, from CLDR, and where they are",
+    run: async (argv) => (await import("./places/speakers.ts")).speakers(argv),
+  },
+  matrix: {
+    help: "matrix [--remote] [--top=N] [locale...]   what the database has and has not, ranked",
+    run: async (argv) => (await import("./places/matrix.ts")).matrix(argv),
+  },
   report: {
     help: "report [locale...]            coverage per language, before adopting one",
     run: async (argv) => (await import("./places/report.ts")).report(argv),

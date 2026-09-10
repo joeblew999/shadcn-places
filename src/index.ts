@@ -19,6 +19,15 @@ import { RPCHandler } from "@orpc/server/fetch"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
 import { contract } from "./api/contract.ts"
 import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
+/**
+ * Literate readers per language, from CLDR, bundled rather than queried.
+ *
+ * 20KB for every language with half a million readers or more. It is reference
+ * data about languages, not about places, so it does not belong in the place
+ * database — and putting it in D1 would make the matrix endpoint a join for no
+ * benefit. `t` is thousands of readers; `w` is where most of them are.
+ */
+import SPEAKERS from "./api/speakers.json"
 
 interface Env {
   DB: D1Database
@@ -167,6 +176,57 @@ const router = os.router({
         "Wikidata (CC0) and Unicode CLDR. Using this API imposes nothing on your application; " +
         "redistributing the database is what triggers ODbL share-alike. See LICENSE-DATA.",
     })),
+  },
+
+  matrix: {
+    get: os.matrix.get.handler(async ({ input, context }) => {
+      const totals = await context.env.DB.prepare(`SELECT type, COUNT(*) n FROM place GROUP BY type`)
+        .all<{ type: string; n: number }>()
+      const byType = new Map(totals.results.map((r) => [r.type, r.n]))
+
+      /**
+       * One row per (locale, tier), counting only names a reader can actually use.
+       *
+       * `romanised` is excluded for every language here, including Latin-script
+       * ones. That understates Dutch — where the romanisation often *is* the Dutch
+       * name — and the alternative understates nothing and overstates Thai, which
+       * is the more expensive mistake for a ranking whose job is to say what to
+       * fix. `/coverage/{locale}` reports both numbers for anyone who needs the
+       * other reading.
+       */
+      const rows = await context.env.DB.prepare(
+        `SELECT n.locale locale, p.type type,
+                SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END) real
+           FROM name n JOIN place p ON p.id = n.place_id
+          WHERE n.locale != 'und'
+          GROUP BY n.locale, p.type`,
+      ).all<{ locale: string; type: string; real: number }>()
+
+      const speakers = SPEAKERS as Record<string, { t: number; w: string[] }>
+      const gaps: { locale: string; tier: string; coverage: number; missing: number; readers: number; where: string[] }[] = []
+      for (const r of rows.results) {
+        // Base languages only: a variant is answered from its base by the locale
+        // negotiation above, so it is the same work item rather than another one.
+        if (r.locale.includes("-")) continue
+        const total = byType.get(r.type) ?? 0
+        if (!total) continue
+        // The pivot is the English name and is not stored as an `en` row.
+        const real = r.locale === "en" ? total : r.real
+        const coverage = Math.round((real / total) * 100)
+        if (coverage >= 70) continue
+        const who = speakers[r.locale]
+        gaps.push({
+          locale: r.locale,
+          tier: r.type,
+          coverage,
+          missing: total - real,
+          readers: (who?.t ?? 0) * 1000,
+          where: who?.w ?? [],
+        })
+      }
+      gaps.sort((a, b) => b.readers * b.missing - a.readers * a.missing)
+      return { places: Object.fromEntries(byType), gaps: gaps.slice(0, input.limit) }
+    }),
   },
 
   coverage: {

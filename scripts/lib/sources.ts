@@ -153,7 +153,29 @@ export const KIND_RANK: Record<Kind, number> = {
  * widely spoken on earth. `wkdt` is kept out of names for the same reason and
  * read separately, as a join key.
  */
-export const NOT_LANGUAGES = new Set(["link", "unlc", "wkdt", "iata", "icao", "faac", "abbr", "post", "phon"])
+export const NOT_LANGUAGES = new Set([
+  "link", "unlc", "wkdt", "iata", "icao", "faac", "abbr", "abbreviation", "post", "phon", "fr_1793", "unofficial",
+])
+
+/**
+ * Does this look like a language tag at all?
+ *
+ * GeoNames puts more than languages in its `isolanguage` column, and the
+ * exclusion list above only catches the ones somebody has noticed. The coverage
+ * matrix found the rest the moment it listed every locale in the database:
+ * `1556--1922`, `1836-1848`, `1889--1921` — historical name periods — sitting
+ * beside Japanese as though they were languages somebody reads.
+ *
+ * A shape test catches the class rather than the instances. Two or three letters,
+ * optionally with subtags, which is what BCP-47 and ISO 639-3 both produce.
+ *
+ * Deliberately permissive about three-letter codes: `abq` is Abaza, `adx` is Amdo
+ * Tibetan, `aig` is Antigua Creole. They look like noise and are real languages
+ * with real speakers, and dropping them because they are unfamiliar would be the
+ * same mistake in the opposite direction.
+ */
+export const isLanguageTag = (tag: string): boolean =>
+  /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(tag) && !NOT_LANGUAGES.has(tag)
 
 export const byId = (id: string): Source => {
   const found = SOURCES.find((s) => s.id === id)
