@@ -72,19 +72,40 @@ rather than against whatever was to hand.
 
 ## What would move the needle next
 
-- [ ] **OSM for cities.** Probed and promising but unevenly: Japanese cities carry
-      `name:th` 64%, `name:ru` 73%, `name:ko` and `name:zh` 100% — far past what
-      GeoNames or Wikidata have. Brazil is 1–6%. The problem is the join: cities
-      have no ISO code, and OSM's `wikidata` tag density runs 24% (Thailand) to
-      99% (Japan). Worth doing where it is dense, and it needs ~250 Overpass
-      queries rather than the single one subdivisions took.
+- [x] **OSM for cities — measured, and not worth building.** The raw tag coverage
+      looked excellent: Japanese cities carry `name:ko` and `name:zh` at 100%,
+      `name:ru` at 73%, `name:th` at 64%. But measured as *incremental* value
+      against what Wikidata already gave us, 1,372 matched Brazilian cities would
+      gain 44 Russian names, 15 Chinese and 9 Japanese. Roughly a hundred names for
+      250 Overpass queries and a join that has no key — cities carry no ISO code,
+      and matching by name fails across scripts entirely (0 of 1,067 Thai nodes
+      matched, because OSM's `name` is in Thai and ours is romanised).
+
+      The lesson is the one this project keeps relearning: a source's coverage is
+      not its contribution. OSM is excellent at naming cities and almost entirely
+      overlaps with a source we already have.
 - [x] **Wikidata for subdivisions.** Done 2026-09-10 and it was the largest single
       gain of the day: th 20→77%, vi 25→81%, id 35→86%, zh 55→97%, and bn/el/ms
       from a quarter to four fifths. Joined on the QID dr5hn ships, which covers
       98% of rows.
-- [ ] **More cities.** `cities5000` is 55,000 rows against the current 34,135, and
-      `cities500` is 220,000. More inventory means lower percentages and better
-      answers — worth doing only once coverage of the current set stops improving.
+- [x] **More cities — done, and it improved both axes.** Moved from `cities15000`
+      to `cities5000`: **34,135 places to 69,700**. Every coverage percentage fell,
+      exactly as predicted, because a town of 8,000 has fewer translations than a
+      city of 200,000 — `ja` 51→40%, `ru` 59→51%, `th` 19→11%.
+
+      And that framing is wrong, which is worth recording. Absolute translated
+      names went **310,478 → 513,481, up 65%**, and the diagonal — a city named in
+      its own country's language, which is what a locally-used product needs —
+      *improved*: Thai 83→89%, Vietnamese 47→65%, Korean 69→85%. The smaller towns
+      GeoNames added do have local names.
+
+      A percentage fell while every real measure rose. Anyone reading the coverage
+      table in isolation would conclude the opposite, which is why `total` is
+      reported beside it.
+
+- [ ] **`cities500`,** 220,000 places, if the same trade holds. Worth measuring the
+      diagonal on a sample before committing: the argument above only works while
+      the added places still carry local names.
 - [ ] **Transliteration.** Still the only thing that can help `th`, `zh` and `ko`
       for the long tail, and still a research problem rather than a feature: `Intl`
       has no transliterator, and going from Portuguese spelling to Thai script is

@@ -56,9 +56,12 @@ export const SOURCES: readonly Source[] = [
     id: "geonames-cities",
     licence: "CC BY 4.0",
     weight: "3MB",
-    url: "https://download.geonames.org/export/dump/cities15000.zip",
+    url: "https://download.geonames.org/export/dump/cities5000.zip",
     credit: "GeoNames",
-    note: "The city inventory: which places exist, their romanised pivot, coordinates, population. Not a translation source — cross-language coverage collapses below 100k people.",
+    note:
+      "The city inventory: which places exist, their romanised pivot, coordinates, population. Not a translation source — its cross-language coverage collapses below 100k people, which is what Wikidata is for. " +
+      "Moved from cities15000 to cities5000 on 2026-09-10: a venue is as likely to be in a town of 8,000 as a city of 20,000, and 'full world coverage' is as much about which places exist as about how many languages name them. " +
+      "Expect the percentages to fall when this changes — a smaller town has fewer translations, so a wider inventory looks like a regression in every coverage figure while being an improvement in every practical sense.",
   },
   {
     id: "geonames-admin1",

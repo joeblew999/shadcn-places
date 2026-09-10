@@ -276,7 +276,8 @@ async function* cities(files: Record<string, { file: string }>): AsyncGenerator<
     }
   }
 
-  for await (const r of tsv(join(dir, "cities15000.txt"))) {
+  const inventory = existsSync(join(dir, "cities5000.txt")) ? "cities5000.txt" : "cities15000.txt"
+  for await (const r of tsv(join(dir, inventory))) {
     const [id, name, ascii, , lat, lon, , , country, , admin1, , , , population] = r
     if (!id || !name) continue
     const names = byId.get(id) ?? []
