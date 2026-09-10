@@ -1,12 +1,18 @@
 /**
  * Merged rows into a database.
  *
- * Writes SQL rather than talking to D1 directly, for a reason that is not
- * squeamishness: `wrangler d1 execute --file` does the bulk load in one command,
- * and a Worker cannot do it at all — the import path is CLI-only. From inside a
- * Worker there is only the binding API and batched inserts, which is the right
- * tool for the recurring refresh and the wrong one for the first load of 190,000
- * rows.
+ * Writes SQL rather than talking to D1 directly, because `wrangler d1 execute
+ * --file` does the bulk load in one command where the binding API would need
+ * thousands of batched inserts.
+ *
+ * It used to say a Worker "cannot do it at all — the import path is CLI-only".
+ * That is false. Wrangler itself calls `POST /d1/database/{id}/import`:
+ * `init-upload` with a filename and etag returns an `upload_url`, you PUT the
+ * SQL, then `ingest` and poll. Plain HTTP, and a Worker can make it.
+ *
+ * The file this produces is therefore the input to *either* path — `wrangler d1
+ * execute` from a laptop today, and the same bytes through the import API from a
+ * Workflow.
  *
  * So this produces a file. `wrangler d1 execute places --file=.build/load.sql`
  * applies it locally or remotely, and the same file is what a stranger runs to

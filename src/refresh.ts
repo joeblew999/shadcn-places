@@ -8,9 +8,25 @@
  *
  * ## What runs here and what cannot
  *
- * Not the whole pipeline, and the boundary is a fact rather than a preference:
- * GeoNames ships `.zip` archives and a Worker has `DecompressionStream` for gzip
- * and deflate but no zip reader. That step stays a CLI job.
+ * Not the whole pipeline — and the boundary is a decision, not a fact, which is
+ * a correction. This used to read: *"GeoNames ships `.zip` archives and a Worker
+ * has `DecompressionStream` for gzip and deflate but no zip reader. That step
+ * stays a CLI job."*
+ *
+ * Both halves of that were wrong, and it shaped the architecture — it is why a
+ * laptop is a required participant and why `data/` went into git.
+ *
+ *   `node:zlib` is fully supported in Workers and this Worker already runs
+ *   `nodejs_compat`. A zip entry is a raw DEFLATE stream behind a local header,
+ *   so `createInflateRaw` reads it. Proved end to end against a real GeoNames
+ *   archive in `wrangler dev`: 97,846 zip bytes in, an entry inflated out.
+ *
+ *   D1's bulk load is not CLI-only either. `POST /d1/database/{id}/import` takes
+ *   `init-upload` → `upload_url` → `ingest` → poll, which is plain HTTP.
+ *
+ * What is actually left is engineering rather than impossibility: a 128MB isolate
+ * against a 744MB `alternateNames.txt` means every step owns a slice and hands
+ * state to the next.
  *
  * It turns out to be the right seam anyway. The two halves change at completely
  * different rates:

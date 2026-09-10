@@ -123,6 +123,29 @@ next rebuild would have destroyed 3,025 names the schedule had found.
 | Something looks wrong | `places matrix`, `places report <locale>`, `places history <what>` |
 | Just looking | `places sync --dry-run` — stops after the diff |
 
+## Why a laptop is in this at all — and why that is changing
+
+Nothing above *needs* to run on a laptop. It does because of two claims that were
+written into this repository as facts and are not:
+
+> "GeoNames ships `.zip` and a Worker has `DecompressionStream` for gzip and
+> deflate but no zip reader. That step stays a CLI job."
+
+`node:zlib` is fully supported in Workers. A zip entry is a raw DEFLATE stream
+behind a local header, so `createInflateRaw` reads it. Proved against a real
+GeoNames archive inside `wrangler dev`.
+
+> "`wrangler d1 execute --file` does the bulk load in one command, and a Worker
+> cannot do it at all — the import path is CLI-only."
+
+Wrangler itself calls `POST /d1/database/{id}/import` — `init-upload` →
+`upload_url` → `ingest` → poll. Plain HTTP.
+
+Those two claims are why a laptop is a required participant, and why `data/` goes
+into git rather than to a URL. Both are being removed. What is genuinely hard is
+the 128MB isolate against a 744MB `alternateNames.txt`: every Workflow step has to
+own a slice and hand state to the next.
+
 ## Why `.build/` is not in git and `data/` is
 
 `.build/` is derived from `.stage/` plus the label files, and both are
