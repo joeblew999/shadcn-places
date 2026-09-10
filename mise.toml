@@ -7,3 +7,8 @@ bun  = "1.4.0"
 # `bun run typecheck` fails with "No version is set for shim: node" on a machine
 # that has mise but no global default — which is most of them.
 node = "26.8.1"
+# Reads the Cloudflare API token out of the OS keychain. Only the D1 bulk import
+# needs it — everything else authenticates through `wrangler login` — so it is not
+# a `setup` dependency, but pinning it here keeps the tool in the project rather
+# than assuming a machine-wide install. Same version as the sibling repository.
+fnox = "1.35.0"

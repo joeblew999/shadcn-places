@@ -1,0 +1,40 @@
+# Secrets this repo consumes. Names only — no values.
+#
+# fnox merges this with the global config at ~/.config/fnox/config.toml, so
+# declaring a secret here does not shadow or replace anything global; it states
+# what *this* project needs. The values live in the OS keychain and are written
+# once per machine:
+#
+#   mise exec -- fnox set --global -p keychain <NAME>
+#
+# Check what is present without printing anything:
+#
+#   mise exec -- fnox check --all
+#
+# The provider is repeated from the global config on purpose. Resolution does
+# inherit it, so this block is redundant on a machine that has already run
+# `fnox init` — but without it the file silently depends on a config outside the
+# repo, and the failure on a fresh machine would point at the wrong place.
+[providers.keychain]
+type    = "keychain"
+service = "fnox"
+
+[secrets]
+
+# Read by `places load --import` and by the LoadDatabase Workflow's deploy step.
+#
+# D1's bulk import is a four-step HTTP protocol — init, PUT, ingest, poll — and
+# it needs a token with D1:Edit. `wrangler d1 execute --file` uses your OAuth
+# session instead, which is why the CLI path has never needed this and the
+# Cloudflare path does. See src/etl/d1-import.ts.
+#
+# `if_missing = "ignore"`: the import is one route into D1 and `wrangler d1
+# execute` is the other. A machine that only ever uses the CLI path is correctly
+# configured without this and should not be warned about it.
+CLOUDFLARE_API_TOKEN = { provider = "keychain", value = "CLOUDFLARE_API_TOKEN", if_missing = "ignore", description = "D1:Edit token — used by the D1 bulk import only" }
+
+# Which account the import addresses. Not secret in any meaningful sense — it is
+# in every wrangler output — but it lives beside the token because the two are
+# useless apart, and hardcoding an account id into a public repository is the
+# kind of thing that is fine until somebody forks it.
+CLOUDFLARE_ACCOUNT_ID = { provider = "keychain", value = "CLOUDFLARE_ACCOUNT_ID", if_missing = "ignore", description = "account the D1 import addresses" }

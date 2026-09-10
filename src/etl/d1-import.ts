@@ -53,9 +53,25 @@ interface ImportResponse {
     at_bookmark?: string
     messages?: string[]
     errors?: string[]
-    /** Present when the ingest finishes. */
-    final_bookmark?: string
-    num_queries?: number
+    /**
+     * Nested, and the nesting is easy to miss.
+     *
+     * The envelope is `{ success, result: { status, at_bookmark, result: { … } } }`
+     * — the counts live one level further down than the status does. Reading them
+     * off the outer object yields `undefined`, which becomes 0, which reports a
+     * successful import of nothing. It did exactly that on the first live run:
+     * "Processed 3 queries." in the messages beside `queries: 0` in the return.
+     */
+    result?: {
+      final_bookmark?: string
+      num_queries?: number
+      meta?: {
+        rows_read?: number
+        rows_written?: number
+        size_after?: number
+        duration?: number
+      }
+    }
   }
 }
 
@@ -95,6 +111,11 @@ export interface ImportOutcome {
   /** True when D1 already had this exact file and the upload was skipped. */
   reused: boolean
   queries: number
+  /** What the database actually did. `rowsWritten` is the number worth checking. */
+  rowsRead: number
+  rowsWritten: number
+  /** Database size after the import, in bytes. */
+  sizeAfter: number
   bookmark?: string
   messages: string[]
 }
@@ -151,7 +172,17 @@ export async function importSql(
 
   for (let i = 0; i < maxPolls; i++) {
     if (state.status === "complete") {
-      return { reused, queries: state.num_queries ?? 0, bookmark: state.final_bookmark, messages }
+      const done = state.result ?? {}
+      const meta = done.meta ?? {}
+      return {
+        reused,
+        queries: done.num_queries ?? 0,
+        rowsRead: meta.rows_read ?? 0,
+        rowsWritten: meta.rows_written ?? 0,
+        sizeAfter: meta.size_after ?? 0,
+        bookmark: done.final_bookmark,
+        messages,
+      }
     }
     if (state.status === "error") {
       throw new Error(`D1 import failed: ${(state.errors ?? []).join("; ") || "no reason given"}`)

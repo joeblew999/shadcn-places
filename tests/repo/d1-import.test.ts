@@ -26,6 +26,27 @@ const ok = (result: unknown) =>
   new Response(JSON.stringify({ success: true, result }), { headers: { "content-type": "application/json" } })
 
 /**
+ * The completion envelope as D1 actually sends it.
+ *
+ * Nested: `result.result.num_queries`, with the row counts under `meta` below
+ * that. The first version of this fake put them one level up, which matched what
+ * the client read and validated the bug — the live run reported "Processed 3
+ * queries." in its messages beside `queries: 0` in its return value.
+ *
+ * A fake that agrees with the client instead of with the server is worse than no
+ * fake at all.
+ */
+const complete = () => ({
+  status: "complete",
+  at_bookmark: "b-final",
+  result: {
+    final_bookmark: "done",
+    num_queries: 13318,
+    meta: { rows_read: 15, rows_written: 3, size_after: 191131648, duration: 6.3 },
+  },
+})
+
+/**
  * A D1 that behaves. `uploadEtag` lets a test make storage return the wrong one.
  */
 function fakeD1(opts: { hasFile?: boolean; uploadEtag?: string; failIngest?: string; polls?: number } = {}) {
@@ -47,13 +68,13 @@ function fakeD1(opts: { hasFile?: boolean; uploadEtag?: string; failIngest?: str
       if (opts.failIngest) return ok({ status: "error", errors: [opts.failIngest] })
       return polls > 0
         ? ok({ status: "active", at_bookmark: "b0", messages: ["started"] })
-        : ok({ status: "complete", num_queries: 13318, final_bookmark: "done" })
+        : ok(complete())
     }
     if (action === "poll") {
       polls--
       return polls > 0
         ? ok({ status: "active", at_bookmark: `b${polls}`, messages: [`working ${polls}`] })
-        : ok({ status: "complete", num_queries: 13318, final_bookmark: "done" })
+        : ok(complete())
     }
     throw new Error(`unexpected action ${action}`)
   }
@@ -80,6 +101,11 @@ describe("the D1 import protocol", () => {
     expect(d1.calls).toEqual(["init", "PUT upload", "ingest"])
     expect(result.reused).toBe(false)
     expect(result.queries).toBe(13318)
+    // The counts live under result.result.meta, two levels below the status.
+    // Reading them off the outer object yields undefined, becomes 0, and reports
+    // a successful import of nothing.
+    expect(result.rowsWritten).toBe(3)
+    expect(result.sizeAfter).toBe(191131648)
   })
 
   it("skips the upload when D1 already holds the file", async () => {
