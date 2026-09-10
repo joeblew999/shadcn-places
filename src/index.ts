@@ -71,6 +71,21 @@ const toPlace = (r: Row) => ({
 /** `pt-BR` → [`pt-BR`, `pt`]. One extra tag, not a negotiation library. */
 const tags = (locale: string): [string, string] => [locale, locale.split("-")[0]]
 
+/**
+ * Translated names first, then the fallbacks, each group alphabetical.
+ *
+ * Sorting purely by the resolved name puts every Latin fallback above every Thai
+ * one, because Latin code points sort below Thai. A Thai reader opening the
+ * province list therefore saw the seventeen provinces nobody had translated,
+ * followed — below the fold — by the sixty-one that had been. The data was right
+ * and the order buried it.
+ *
+ * SQLite has no locale-aware collation and D1 cannot register one, so this does
+ * the part that matters: it never shows somebody a wall of a script they cannot
+ * read while the names they can read sit underneath.
+ */
+const ORDER = `ORDER BY (n.kind IS NULL OR n.kind = 'romanised'), COALESCE(n.value, p.pivot) COLLATE NOCASE`
+
 const SELECT = `
   SELECT p.id, p.type, p.pivot, p.parent_id, p.country_code, p.lat, p.lon, p.population,
          n.value, n.source, n.kind
@@ -83,7 +98,7 @@ const router = os.router({
     list: os.countries.list.handler(async ({ input, context }) => {
       const [locale, base] = tags(input.locale)
       const { results } = await context.env.DB.prepare(
-        `${SELECT} WHERE p.type = 'country' ORDER BY COALESCE(n.value, p.pivot) COLLATE NOCASE`,
+        `${SELECT} WHERE p.type = 'country' ${ORDER}`,
       )
         .bind(locale, base)
         .all<Row>()
@@ -97,8 +112,7 @@ const router = os.router({
       // `country_code` + `type` is an index. Without the type predicate this
       // would also walk every city in the country.
       const { results } = await context.env.DB.prepare(
-        `${SELECT} WHERE p.country_code = ? AND p.type = 'subdivision'
-         ORDER BY COALESCE(n.value, p.pivot) COLLATE NOCASE`,
+        `${SELECT} WHERE p.country_code = ? AND p.type = 'subdivision' ${ORDER}`,
       )
         .bind(locale, base, input.country.toUpperCase())
         .all<Row>()

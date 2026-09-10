@@ -16,7 +16,9 @@
  * which is why the destination is a parameter rather than an assumption.
  */
 
-import { existsSync, mkdirSync, statSync, writeFileSync, readFileSync } from "node:fs"
+import { createWriteStream, existsSync, mkdirSync, statSync, writeFileSync, readFileSync } from "node:fs"
+import { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
 import { join } from "node:path"
 import { SOURCES } from "../lib/sources.ts"
 
@@ -32,11 +34,21 @@ const read = (): Manifest => (existsSync(MANIFEST) ? JSON.parse(readFileSync(MAN
 
 async function fetchTo(url: string, path: string): Promise<number> {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`)
-  // Streamed to disk rather than buffered: alternateNames.zip is 193MB and
-  // `await res.arrayBuffer()` on that is most of an isolate's memory budget.
-  const body = await res.arrayBuffer()
-  writeFileSync(path, Buffer.from(body))
+  if (!res.ok || !res.body) throw new Error(`${url} → HTTP ${res.status}`)
+  /**
+   * Streamed to disk, and it has to actually be streamed.
+   *
+   * An earlier version of this claimed to stream in its comment and called
+   * `res.arrayBuffer()` in its body — which buffers the whole response. For
+   * `alternateNames.zip` that is 193MB resident, more than a Cloudflare isolate's
+   * entire 128MB budget, so the one step that most needs to survive being moved
+   * into a Workflow was the one that could not be.
+   *
+   * A comment that describes what the code should do rather than what it does is
+   * worse than no comment: it is the thing a reader trusts instead of reading.
+   */
+  const out = createWriteStream(path)
+  await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), out)
   return statSync(path).size
 }
 

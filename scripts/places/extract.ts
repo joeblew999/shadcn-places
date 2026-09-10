@@ -142,10 +142,50 @@ const CLDR_LOCALES = [
   "sv","sw","ta","te","th","tr","uk","ur","uz","vi","zh","zh-Hant","zu",
 ]
 
-/** Subdivisions: dr5hn's nineteen languages, its `native`, GeoNames for the rest. */
+/**
+ * Subdivisions: dr5hn's nineteen languages, its `native`, and GeoNames for the
+ * languages dr5hn has never heard of.
+ *
+ * dr5hn is the better source and covers none of Thai, Vietnamese or Indonesian —
+ * which for a product used in Southeast Asia is the half that matters. GeoNames
+ * carries those, keyed by its own id, and the two agree on a code: GeoNames writes
+ * `TH.15` where dr5hn writes `TH-15`, so a dot-for-hyphen swap joins them with no
+ * name matching and no guessing.
+ *
+ * Only enriches rows dr5hn already has. GeoNames knows subdivisions dr5hn does
+ * not, and adding them here would mean two sources disagreeing about what the
+ * hierarchy *is* rather than about what to call it — a bigger question than this
+ * step should decide on its own.
+ */
 async function* subdivisions(files: Record<string, { file: string }>): AsyncGenerator<Place> {
   const dr = files["dr5hn"]?.file
   if (!dr) return
+
+  // geonameId → the subdivision id dr5hn would use for the same place.
+  const idOf = new Map<string, string>()
+  const admin1 = files["geonames-admin1"]?.file
+  if (admin1) {
+    for await (const r of tsv(admin1)) {
+      const [code, , , geonameId] = r
+      if (!code || !geonameId) continue
+      idOf.set(geonameId, `subdivision:${code.replace(".", "-")}`)
+    }
+  }
+
+  // One streamed pass, keeping every language, exactly as for cities.
+  const fromGeoNames = new Map<string, Name[]>()
+  const alt = files["geonames-alternates"]?.file
+  if (alt && idOf.size) {
+    for await (const r of tsv(join(expand(alt), "alternateNames.txt"))) {
+      const [, geonameId, lang, value] = r
+      if (!geonameId || !value || !lang) continue
+      const id = idOf.get(geonameId)
+      if (!id || NOT_LANGUAGES.has(lang)) continue
+      const list = fromGeoNames.get(id) ?? []
+      list.push({ locale: lang, value, source: "geonames", kind: "translated" })
+      fromGeoNames.set(id, list)
+    }
+  }
   for await (const row of jsonArray<Record<string, unknown>>(dr)) {
     const code = String(row.iso3166_2 ?? `${row.country_code}-${row.iso2}`)
     const pivot = String(row.name ?? "")
@@ -160,8 +200,9 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
       // and rewriting somebody else's tags is how a wrong mapping becomes silent.
       names.push({ locale: tag, value, source: "dr5hn", kind: value === pivot ? "romanised" : "translated" })
     }
+    const id = `subdivision:${code}`
     yield {
-      id: `subdivision:${code}`,
+      id,
       type: "subdivision",
       pivot,
       country: String(row.country_code ?? ""),
@@ -169,7 +210,9 @@ async function* subdivisions(files: Record<string, { file: string }>): AsyncGene
       lat: Number(row.latitude) || undefined,
       lon: Number(row.longitude) || undefined,
       wikidata: (row.wikiDataId as string) || undefined,
-      names,
+      // dr5hn first, so its curated translation wins a tie; the merge decides the
+      // rest by kind, and demotes anything identical to the pivot either way.
+      names: [...names, ...(fromGeoNames.get(id) ?? [])],
     }
   }
 }

@@ -108,3 +108,27 @@ export const byId = (id: string): Source => {
   if (!found) throw new Error(`unknown source: ${id}. Known: ${SOURCES.map((s) => s.id).join(", ")}`)
   return found
 }
+
+/**
+ * Languages written in a script where a Latin string is not a lesser translation
+ * but an unreadable one.
+ *
+ * Not a judgement about the language — about the script. A Dutch reader given
+ * "Ourinhos" is reading Dutch. A Thai reader given "Ourinhos" is reading nothing,
+ * and a Thai reader given "Changwat Bueng Kan" — which GeoNames really does tag
+ * as `th` — is reading a transliteration somebody labelled a translation.
+ */
+export const NON_LATIN_SCRIPT = new Set([
+  "th","ja","zh","zh-CN","zh-TW","zh-HK","zh-Hant","ko","ru","uk","be","bg","sr","mk","el","hy","ka",
+  "hi","bn","pa","gu","ta","te","kn","ml","si","ne","mr","my","km","lo","am","ti","dz","bo",
+  "ar","fa","ur","ps","he","yi","dv","ug","kk","ky","mn","tg","sd","ckb","ku",
+])
+
+/**
+ * Is this string written in Latin letters?
+ *
+ * ASCII, the Latin-1 and Latin Extended blocks, and the punctuation and digits
+ * that legitimately appear inside a place name. Anything outside them means the
+ * value carries the script it claims, which is all this needs to decide.
+ */
+export const isLatinScript = (value: string): boolean => /^[\p{Script=Latin}\p{P}\p{N}\p{Zs}\p{M}]+$/u.test(value)

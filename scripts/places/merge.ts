@@ -21,7 +21,7 @@
 
 import { join } from "node:path"
 import { records, ndjsonWriter } from "../lib/ndjson.ts"
-import { KIND_RANK, type Kind } from "../lib/sources.ts"
+import { KIND_RANK, NON_LATIN_SCRIPT, isLatinScript, type Kind } from "../lib/sources.ts"
 import type { Place, Name } from "./extract.ts"
 
 const OUT = process.env.PLACES_OUT ?? ".build"
@@ -50,7 +50,22 @@ export interface MergedPlace extends Omit<Place, "names"> {
  */
 function actualKind(name: Name, pivot: string): Kind {
   if (name.kind === "native") return "native"
-  return name.value === pivot ? "romanised" : name.kind
+  // Identical to the pivot: a romanisation whatever the source called it.
+  if (name.value === pivot) return "romanised"
+  /**
+   * Latin letters in a language that is not written in them.
+   *
+   * The equality test above misses the commonest form of this. GeoNames tags
+   * "Changwat Bueng Kan" as Thai — it is a transliteration, it differs from the
+   * pivot "Bueng Kan", and so it sailed through as a translation and was served
+   * to Thai readers as though somebody had translated it.
+   *
+   * The script is the evidence. A Thai name contains Thai characters; if it does
+   * not, nobody has written this place in Thai, and saying otherwise makes the
+   * coverage numbers a claim rather than a measurement.
+   */
+  if (NON_LATIN_SCRIPT.has(name.locale) && isLatinScript(name.value)) return "romanised"
+  return name.kind
 }
 
 export function resolve(place: Place): Resolved[] {
