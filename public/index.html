@@ -184,9 +184,21 @@ async function loadSubdivisions() {
   for (const p of places) subdivision.add(option(p))
   subdivision.disabled = false
   q.disabled = false
-  hint.textContent = places.length
-    ? `${places.length} subdivisions. A "·" marks a name identical to the romanised original — nobody has translated it into ${locale.value}.`
-    : "This country has no subdivisions in the dataset."
+  /**
+   * Say what is true for the language on screen, not a fixed sentence.
+   *
+   * This always read `nobody has translated it into ${locale.value}` — which is
+   * nonsense in English, where the pivot *is* the name and nothing is ever
+   * marked, and it named the language by its tag rather than by its name to a
+   * reader who may not read tags.
+   */
+  const fallbacks = places.filter((p) => p.kind === "romanised").length
+  const language = (LOCALES.find(([code]) => code === locale.value) ?? [, locale.value])[1]
+  hint.textContent = !places.length
+    ? "This country has no subdivisions in the dataset."
+    : fallbacks
+      ? `${places.length} subdivisions, ${fallbacks} still showing the romanised original — each marked with a "·". Nobody has written those in ${language} yet.`
+      : `${places.length} subdivisions, every one of them named in ${language}.`
 }
 
 let timer
@@ -197,8 +209,11 @@ async function searchCities() {
   // Debounced because each keystroke is a database query somebody pays for.
   timer = setTimeout(async () => {
     const sub = subdivision.value ? `&subdivision=${encodeURIComponent(subdivision.value)}` : ""
+    // The current path. `/cities?country=` still answers — LEGACY_PATHS rewrites
+    // it and marks the response deprecated — but this repository's own demo
+    // should not be the thing keeping a deprecated URL warm.
     const { places } = await get(
-      `/cities?country=${code}&q=${encodeURIComponent(q.value)}&locale=${locale.value}${sub}&limit=25`,
+      `/countries/${code}/cities?q=${encodeURIComponent(q.value)}&locale=${locale.value}${sub}&limit=25`,
     )
     cities.innerHTML = ""
     for (const p of places) {
@@ -270,8 +285,35 @@ country.addEventListener("change", loadSubdivisions)
 subdivision.addEventListener("change", searchCities)
 q.addEventListener("input", searchCities)
 
+/**
+ * The reader's own language, negotiated against what this service actually has.
+ *
+ * It opened in Japanese for everybody, because "ja" demonstrates the point well —
+ * a Latin-script reader sees 日本 and understands immediately what the service is
+ * for. That is a good argument for a screenshot and a bad one for a page: a demo
+ * whose whole claim is *ask in your language* should not answer in mine.
+ *
+ * `navigator.languages` is the reader's preference order. Each entry is matched
+ * against the offered list exactly first, then by its base tag — so `pt-BR` takes
+ * `pt-BR` where the service has it and `pt` otherwise, the same negotiation the
+ * API does with `locale IN (?, ?)`.
+ *
+ * Falls back to the first offered locale rather than to English: the list comes
+ * back ordered by readers, so the fallback is the language most people can read
+ * rather than the one I happen to write in.
+ */
+function preferredLocale(offered) {
+  const codes = new Set(offered.map(([code]) => code))
+  for (const tag of navigator.languages ?? [navigator.language ?? "en"]) {
+    if (codes.has(tag)) return tag
+    const base = tag.split("-")[0]
+    if (codes.has(base)) return base
+  }
+  return offered[0][0]
+}
+
 await loadLocales()
-locale.value = LOCALES.some(([c]) => c === "ja") ? "ja" : LOCALES[0][0]
+locale.value = preferredLocale(LOCALES)
 await loadCountries()
 country.value = "country:BR"
 await loadSubdivisions()

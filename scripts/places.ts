@@ -27,7 +27,7 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     run: async (argv) => (await import("./places/registry.ts")).registry(argv),
   },
   sync: {
-    help: "sync [--full] [--force] [--dry-run] [--local-only]   the whole cycle in the right order",
+    help: "sync [--full] [--force] [--dry-run] [--local-only] [--no-deploy]   pull → merge → diff → load → publish → deploy → verify",
     run: async (argv) => (await import("./places/sync.ts")).sync(argv),
   },
   pull: {

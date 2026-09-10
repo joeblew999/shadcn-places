@@ -94,12 +94,34 @@ interface Row {
   kind: string | null
 }
 
+/**
+ * English is the pivot, so it is never a fallback.
+ *
+ * `romanised` means two different things that happen to be the same string here:
+ * *this is the Latin form* and *nobody has translated this into your language*.
+ * For every other language those coincide usefully. For English they are opposite
+ * — the pivot **is** the English name — and the merge demotes every `en` row to
+ * `romanised` because its value equals the pivot, which is true and useless.
+ *
+ * The demo made it visible the moment it stopped defaulting to Japanese: all 257
+ * countries rendered with the "not translated" marker for an English reader.
+ *
+ * Underneath it was one fact — the pivot is the English name — patched in three
+ * places and nowhere consistently. `/api/matrix` and `/api/locales` special-cased
+ * `en` to 100%. `/api/coverage/en` reported `named 100%, translated 0%`. And the
+ * list said every row was a fallback. Three answers to one question, which is the
+ * failure this project keeps arriving at from new directions.
+ */
+const isEnglish = (locale: string) => locale === "en" || locale.startsWith("en-")
+
 /** The wire shape. `name` is never null: the pivot stands in, and `kind` says so. */
-const toPlace = (r: Row) => ({
+const toPlace = (r: Row, english = false) => ({
   id: r.id,
   type: r.type,
   name: r.value ?? r.pivot,
-  kind: (r.kind ?? "romanised") as "override" | "translated" | "native" | "romanised" | "transliterated",
+  kind: (english && (r.kind === "romanised" || r.kind == null)
+    ? "translated"
+    : r.kind ?? "romanised") as "override" | "translated" | "native" | "romanised" | "transliterated",
   source: r.source ?? "geonames",
   parentId: r.parent_id,
   countryCode: r.country_code,
@@ -170,7 +192,8 @@ const router = os.router({
       )
         .bind(locale, base)
         .all<Row>()
-      return { places: results.map(toPlace) }
+      const english = isEnglish(input.locale)
+      return { places: results.map((r) => toPlace(r, english)) }
     }),
   },
 
@@ -184,7 +207,8 @@ const router = os.router({
       )
         .bind(locale, base, input.country.toUpperCase())
         .all<Row>()
-      return { places: results.map(toPlace) }
+      const english = isEnglish(input.locale)
+      return { places: results.map((r) => toPlace(r, english)) }
     }),
   },
 
@@ -215,7 +239,8 @@ const router = os.router({
       )
         .bind(...binds)
         .all<Row>()
-      return { places: results.map(toPlace) }
+      const english = isEnglish(input.locale)
+      return { places: results.map((r) => toPlace(r, english)) }
     }),
 
     get: os.cities.get.handler(async ({ input, context }) => {
@@ -223,7 +248,7 @@ const router = os.router({
       const row = await context.env.DB.prepare(`${SELECT} WHERE p.id = ? LIMIT 1`)
         .bind(locale, base, input.id)
         .first<Row>()
-      return { place: row ? toPlace(row) : null }
+      return { place: row ? toPlace(row, isEnglish(input.locale)) : null }
     }),
   },
 
@@ -389,11 +414,25 @@ const router = os.router({
       // MIN across the tiers: they are all the same locale, so they all carry the
       // same flag, and MIN picks it without caring which tier came back.
       const stored = cov.results[0]?.latin
+      /**
+       * English is complete by construction, and this endpoint used to deny it.
+       *
+       * The pivot *is* the English name, and the merge files every `en` row as
+       * `romanised` because its value equals the pivot. So this reported English
+       * countries as `named 100%, translated 0%` while `/api/matrix` and
+       * `/api/locales` both special-cased `en` to 100% — the same fact, answered
+       * three ways by one service.
+       *
+       * Answered here the way the other two answer it. The special case is not a
+       * fudge: there is genuinely nothing missing, because the fallback and the
+       * translation are the same string.
+       */
+      const english = isEnglish(input.locale)
       const results = totals.results.map((t) => ({
         type: t.type,
         total: t.n,
-        named: found.get(t.type)?.named ?? 0,
-        translated: found.get(t.type)?.translated ?? 0,
+        named: english ? t.n : found.get(t.type)?.named ?? 0,
+        translated: english ? t.n : found.get(t.type)?.translated ?? 0,
       }))
       return {
         locale: input.locale,

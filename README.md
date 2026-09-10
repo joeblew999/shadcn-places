@@ -95,7 +95,7 @@ wrong lives in **[docs/](docs/README.md)**. Start there.
 ```bash
 bun install
 bun run places          # what the CLI can do
-bun run places sync     # the whole cycle: pull → merge → diff → load → publish
+bun run places sync     # the whole cycle, ending in a deploy and a check against it
 bun run places history  # when a name changed, and to what
 bun run check           # typecheck, repo checks, service tests
 ```

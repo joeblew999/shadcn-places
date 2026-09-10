@@ -16,6 +16,8 @@
  * differently under `wrangler dev`.
  */
 
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { describe, it, expect } from "vitest"
 
 const BASE = process.env.PLACES_URL ?? "http://localhost:8787"
@@ -45,15 +47,54 @@ describe("the service answers", () => {
     expect(res.headers.get("content-type")).toMatch(/html/)
   })
 
-  it.skipIf(!up)("serves the registry item at the URL the README tells people to use", async () => {
-    // The one URL a stranger tries first. It 404'd for an afternoon because the
-    // asset binding serves from the root and the /r/ prefix was not stripped.
-    const res = await fetch(`${BASE}/r/places-picker.json`)
-    expect(res.status).toBe(200)
-    const item = (await res.json()) as { name: string; files: unknown[] }
-    expect(item.name).toBe("places-picker")
-    expect(item.files.length).toBeGreaterThan(0)
-  })
+  for (const name of ["places-picker", "places-coverage"]) {
+    it.skipIf(!up)(`serves ${name} at the URL the README tells people to use`, async () => {
+      // The one URL a stranger tries first. It 404'd for an afternoon because the
+      // asset binding serves from the root and the /r/ prefix was not stripped.
+      const res = await fetch(`${BASE}/r/${name}.json`)
+      expect(res.status, `/r/${name}.json is not served`).toBe(200)
+      const item = (await res.json()) as { name: string; files: { content: string; target: string }[] }
+      expect(item.name).toBe(name)
+      expect(item.files.length).toBeGreaterThan(0)
+      for (const f of item.files) {
+        expect(f.content?.length, "a served file has no content — the installer cannot write it").toBeGreaterThan(100)
+        expect(f.target, "a served file has no target — the installer will not know where to put it").toBeTruthy()
+      }
+    })
+
+    it.skipIf(!up)(`serves the ${name} that is in this repository`, async () => {
+      /**
+       * The staleness check, and it only means something against a deployment.
+       *
+       * Registry items are static assets. `places sync` regenerates them and they
+       * then exist only on the machine that ran it — the deployed
+       * `/r/${name}.json` keeps serving the previous component and `shadcn add`
+       * keeps installing it, with nothing failing anywhere. This project has
+       * shipped that bug once already.
+       *
+       * Against localhost this is close to tautological, because the asset binding
+       * reads the same `public/` directory the generator writes. Against
+       * PLACES_URL it is the only thing that can tell you the deployed registry
+       * has fallen behind the source, which is why `places sync` now ends by
+       * deploying and then running this file against production.
+       */
+      const served = (await (await fetch(`${BASE}/r/${name}.json`)).json()) as {
+        files: { path: string; content: string }[]
+      }
+      const local = JSON.parse(
+        readFileSync(resolve(import.meta.dirname, "../..", "public", `${name}.json`), "utf8"),
+      ) as { files: { path: string; content: string }[] }
+
+      expect(served.files.map((f) => f.path)).toEqual(local.files.map((f) => f.path))
+      for (const [i, f] of served.files.entries()) {
+        expect(
+          f.content,
+          `the deployed ${name} is not the one in this repository — run \`bun x wrangler deploy\`, ` +
+            `or \`bun run places sync\`, which now does`,
+        ).toBe(local.files[i].content)
+      }
+    })
+  }
 
   it.skipIf(!up)("lets a browser call it", async () => {
     // No CORS headers at all until somebody opened the demo on localhost and got
@@ -194,6 +235,58 @@ describe("the URLs it published this morning", () => {
     // country in the query means no path to rewrite to, so it stays a 404.
     const res = await api("/cities?q=paris")
     expect(res.status).toBe(404)
+  })
+})
+
+describe("English is the pivot, and every endpoint agrees about that", () => {
+  /**
+   * One fact — the pivot is the English name — answered three ways.
+   *
+   * `/api/matrix` and `/api/locales` special-cased `en` to 100%.
+   * `/api/coverage/en` reported `named 100%, translated 0%`. And
+   * `/api/countries?locale=en` returned `romanised` for all 257, because the
+   * merge demotes any value equal to the pivot and for English that is every row.
+   *
+   * Nothing failed. It surfaced only when the demo stopped defaulting to Japanese
+   * and an English reader saw the "nobody translated this" marker on every country
+   * in the list. A service that contradicts itself about its own most common
+   * language is one nobody can quote.
+   */
+  it.skipIf(!up)("never calls an English name a fallback", async () => {
+    const { places } = (await (await api("/countries?locale=en")).json()) as {
+      places: { name: string; kind: string }[]
+    }
+    expect(places.length).toBeGreaterThan(200)
+    const fallbacks = places.filter((p) => p.kind === "romanised")
+    expect(
+      fallbacks.length,
+      `${fallbacks.length} of ${places.length} English country names are marked romanised — ` +
+        `the pivot is the English name, so a reader is told nothing is translated when everything is`,
+    ).toBe(0)
+  })
+
+  it.skipIf(!up)("does the same for a region variant", async () => {
+    // `en-AU` is what a browser sends, and it negotiates to `en`. If the special
+    // case were tag-exact it would be right for `en` and wrong for every reader.
+    const { places } = (await (await api("/countries?locale=en-AU")).json()) as { places: { kind: string }[] }
+    expect(places.filter((p) => p.kind === "romanised").length).toBe(0)
+  })
+
+  it.skipIf(!up)("reports English as complete, in the endpoint that reports coverage", async () => {
+    const cov = (await (await api("/coverage/en")).json()) as {
+      tiers: { type: string; total: number; named: number; translated: number }[]
+    }
+    for (const tier of cov.tiers) {
+      expect(tier.named, `${tier.type}: named should equal the total for English`).toBe(tier.total)
+      expect(tier.translated, `${tier.type}: translated should equal the total for English`).toBe(tier.total)
+    }
+  })
+
+  it.skipIf(!up)("never ranks English as a gap", async () => {
+    // The matrix drops anything at 70% or better, so a complete language must not
+    // appear at all. If it does, the three views have drifted apart again.
+    const { gaps } = (await (await api("/matrix?limit=100")).json()) as { gaps: { locale: string }[] }
+    expect(gaps.map((g) => g.locale)).not.toContain("en")
   })
 })
 

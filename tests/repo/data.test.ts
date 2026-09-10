@@ -368,3 +368,34 @@ describe("what we say a language is written in", () => {
     ).toEqual([])
   })
 })
+
+/**
+ * Publishing the same build twice produces the same bytes.
+ *
+ * `gzip` writes the source filename and its modification time into the header, so
+ * `gzip -9 -c` gave three new binary blobs on every `places sync` — byte-for-byte
+ * different, semantically identical. `git status` was dirty after every run and
+ * `git diff --stat` said `Bin 11297863 -> 11297863 bytes`, which is indis-
+ * tinguishable from a real change and trains people to commit without looking.
+ *
+ * `data/` is the ODbL artefact *and* the baseline the next diff compares against.
+ * Noise in the one file that has to be read carefully is worse than noise
+ * anywhere else. `gzip -n` omits both fields; this asserts they stayed omitted.
+ */
+describe("what we publish is reproducible", () => {
+  for (const file of ["countries", "subdivisions", "cities", "history"]) {
+    const path = resolve(ROOT, "data", `${file}.ndjson.gz`)
+    it.skipIf(!existsSync(path))(`${file}.ndjson.gz carries no timestamp`, () => {
+      const header = readFileSync(path).subarray(0, 10)
+      expect(header[0], "not a gzip file").toBe(0x1f)
+      expect(header[1], "not a gzip file").toBe(0x8b)
+      // Bytes 4-7 are MTIME, and bit 3 of FLG (byte 3) says a filename follows.
+      expect(
+        header.readUInt32LE(4),
+        `${file}.ndjson.gz has a timestamp in its header, so every publish rewrites it ` +
+          `even when nothing changed. Publish with \`gzip -9 -n\``,
+      ).toBe(0)
+      expect(header[3] & 0x08, `${file}.ndjson.gz embeds the source filename — use \`gzip -n\``).toBe(0)
+    })
+  }
+})

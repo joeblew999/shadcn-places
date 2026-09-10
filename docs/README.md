@@ -11,8 +11,11 @@ wrong. The README is for somebody deciding whether to use this; everything about
   it still has an open item in it. When the last one closes, move the file — the
   top level is then a list of what is actually left rather than a list of
   everything that ever happened.
-- `bun run places sync` is the pipeline. Its order is load-bearing and the reason
-  for each step is in [the CLI record](done/2026-09-10-06-the-cli-and-the-platform.md).
+- `bun run places sync` is the pipeline, and it ends by deploying and then testing
+  what it deployed. Its order is load-bearing and every step carries its reason in
+  [`scripts/places/sync.ts`](../scripts/places/sync.ts) — the code owns that order,
+  so a document repeating it is a second answer waiting to go stale. The record of
+  *why the command exists* is [the CLI record](done/2026-09-10-06-the-cli-and-the-platform.md).
 - A measurement without its denominator is not a measurement. This project has
   been caught five times by a number that answered a narrower question than the
   one being asked; they are all recorded rather than quietly fixed.
