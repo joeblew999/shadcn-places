@@ -4,6 +4,17 @@
 wrong. The README is for somebody deciding whether to use this; everything about
 *how it is built* is here.
 
+## Where things stand
+
+Every plan in this repository is resolved except one. `docs/` holds what is left;
+`done/` holds the rest, each with its boxes ticked and the proof beside them.
+
+| | |
+| --- | --- |
+| Plans with open steps | **1** — [world coverage](2026-09-10-03-world-coverage.md), 2 steps |
+| Plans complete | 6 |
+| Records (no steps) | 4 |
+
 ## Working rules
 
 - Start from the owning document below. Record status and evidence there.
@@ -24,20 +35,21 @@ wrong. The README is for somebody deciding whether to use this; everything about
 
 | Work | State | What it holds |
 | --- | --- | --- |
-| [World coverage](2026-09-10-03-world-coverage.md) | Countries done, subdivisions strong, cities at the ceiling of open data | What each language actually has and what would move it. OSM for cities was measured and rejected on incremental value, then re-measured and accepted once the join was fixed — and is now folded in. |
-| [Why these sources](2026-09-09-why-these-sources.md) | Reference; still current | Five candidates measured rather than read about, and the reasoning that picked each tier's winner. Two conclusions were later disproved by building; both corrections are inline. Stays here because it is consulted, not because it is unfinished. |
+| [World coverage](2026-09-10-03-world-coverage.md) | **The only plan with open steps.** 3 of 5 done | What each language actually has and what would move it. Open: `cities500`, and transliteration — which is the one thing left that could move city coverage for non-Latin scripts, and is a research problem rather than a feature. |
 
 ## Done
 
 | Work | What it holds |
 | --- | --- |
+| [One tag per language](2026-09-10-09-one-tag-per-language.md) | Filipino split across `tl` and `fil`, 140 languages with no country names at all, and a hand-written alias table replaced by CLDR's five hundred. |
 | [Closing the open list](2026-09-10-08-closing-the-open-list.md) | The last four open items, and the four things they found — including a typed client that had never compiled in a consumer project. |
 | [One answer per question](2026-09-10-07-one-answer-per-question.md) | The oRPC 2.0 migration, the Worker that was never typechecked, and the script classification being asked in three runtimes that disagree. |
 | [GUI driven by the matrix](done/2026-09-10-04-gui-driven-by-the-matrix.md) | The language picker driven by the data rather than by a list, and the coverage heatmap as a second registry item. All six steps ticked with their proof. |
 | [The CLI and the platform](done/2026-09-10-06-the-cli-and-the-platform.md) | `places sync` and its ordering, and the eight Cloudflare/oRPC features that replaced things hand-rolled worse. Includes two failures that cost real time. |
 | [Things that never worked](done/2026-09-10-05-things-that-never-worked.md) | The registry item, the typed client and the OpenAPI spec were all documented and all broken, and every check was green. What each check should have asserted. |
 | [Rebuild strategy](done/2026-09-10-02-rebuild-strategy.md) | It rebuilds, it does not repair. `overrides.json` is the only kind a rebuild preserves; `places diff` is the safety net. |
-| [The first build](done/2026-09-10-01-first-build.md) | How the ETL came together, and the streaming-parser bug that silently parsed 56 of 5,308 rows. |
+| [The first build](done/2026-09-10-01-first-build.md) | How the ETL came together, and the streaming-parser bug that silently parsed 56 of 5,308 rows. All five steps resolved. |
+| [Why these sources](done/2026-09-09-why-these-sources.md) | Five candidates measured rather than read about, and the reasoning that picked each tier's winner. **Still the reference for why each source is here** — it lives in `done/` because its thirteen steps are resolved, not because it stopped being useful. |
 
 ## Still open
 

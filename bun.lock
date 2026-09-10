@@ -16,6 +16,7 @@
         "@orpc/zod": "2.0.0-beta.35",
         "@tanstack/react-query": "^5.102.8",
         "@types/node": "^26.4.1",
+        "cldr-core": "48.2.0",
         "drizzle-kit": "^0.31.10",
         "drizzle-orm": "^0.45.2",
         "typescript": "^5.9.3",
@@ -24,8 +25,9 @@
         "zod": "^4.5.4",
       },
       "peerDependencies": {
-        "@orpc/client": "^2.0.0-beta.35",
-        "@orpc/contract": ">=1.15.0",
+        "@orpc/client": ">=2.0.0-beta.35",
+        "@orpc/contract": ">=2.0.0-beta.35",
+        "@orpc/openapi": ">=2.0.0-beta.35",
         "zod": ">=4",
       },
     },
@@ -290,6 +292,8 @@
     "buffer-from": ["buffer-from@1.1.2", "", {}, "sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ=="],
 
     "chai": ["chai@6.2.2", "", {}, "sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg=="],
+
+    "cldr-core": ["cldr-core@48.2.0", "", {}, "sha512-zfmLothncSwfv2jlevoSrgI2VGgH8SDGHXst6jUEotHA8nq9Igeg9jzdJDFtBso9pgJuG89DK16TzrmZDdo2Bg=="],
 
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 

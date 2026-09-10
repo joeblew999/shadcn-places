@@ -22,6 +22,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "extract [countries|subdivisions|cities]   stream staged sources into .build/*.ndjson — no network",
     run: async (argv) => (await import("./places/extract.ts")).extract(argv),
   },
+  aliases: {
+    help: "aliases                       regenerate the CLDR language alias table",
+    run: async (argv) => (await import("./places/aliases.ts")).aliases(argv),
+  },
   registry: {
     help: "registry                      build the served registry items, with the source inside them",
     run: async (argv) => (await import("./places/registry.ts")).registry(argv),
@@ -43,7 +47,7 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     run: async (argv) => (await import("./places/score.ts")).score(argv),
   },
   labels: {
-    help: "labels [--gaps] [--subdivisions] [--locales=a,b]   names from Wikidata; --gaps asks the matrix what is missing",
+    help: "labels [--gaps] [--countries|--subdivisions] [--locales=a,b]   names from Wikidata; --gaps asks the matrix what is missing",
     run: async (argv) => (await import("./places/labels.ts")).labels(argv),
   },
   diff: {

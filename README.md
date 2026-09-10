@@ -73,7 +73,7 @@ Not "every place in every language" — that does not exist in open data.
 
 | | Rows | Coverage |
 | --- | --- | --- |
-| **Countries** | 257 | **100%, every locale ICU carries** |
+| **Countries** | 257 | **100% in every locale ICU carries, plus 140 it does not** |
 | **Subdivisions** | 5,304 | 77–100% for most languages |
 | **Cities** | 69,700 | A romanised name always; 17–59% translated depending on language |
 

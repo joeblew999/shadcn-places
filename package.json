@@ -2,7 +2,7 @@
   "name": "shadcn-places",
   "version": "0.1.0",
   "type": "module",
-  "description": "Countries, states and cities in every language the open data has \u2014 API, data and a cascading shadcn picker.",
+  "description": "Countries, states and cities in every language the open data has — API, data and a cascading shadcn picker.",
   "license": "MIT",
   "scripts": {
     "places": "bun scripts/places.ts",
@@ -24,6 +24,7 @@
     "@orpc/zod": "2.0.0-beta.35",
     "@tanstack/react-query": "^5.102.8",
     "@types/node": "^26.4.1",
+    "cldr-core": "48.2.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "typescript": "^5.9.3",

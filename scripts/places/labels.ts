@@ -85,6 +85,61 @@ async function ask(query: string, attempt = 1): Promise<Record<string, { value: 
   }
 }
 
+/**
+ * Country names for the languages CLDR has never heard of.
+ *
+ * Countries come from `Intl.DisplayNames`, which is CLDR, which covers the
+ * hundred-odd locales ICU ships — and the README said "100%, every locale ICU
+ * carries" as though that were the same as every locale. It is not. Wu (81M
+ * readers), Cantonese (77M), Min Nan and Hakka each had **zero country names**,
+ * and the matrix duly ranked them as the worst gaps in the world.
+ *
+ * Wikidata has them. Every country carries P297 — its ISO 3166-1 alpha-2 code —
+ * which *is* our country id, so the join is exact and needs no matching. 257
+ * places in one query rather than 279 batches: this is a different shape of job
+ * from the city pass and short-circuits before its machinery.
+ */
+async function countryLabels(locales: string[]): Promise<void> {
+  const langFilter = locales.map((l) => `"${l}"`).join(", ")
+  console.log(`  257 countries, ${locales.length} languages, one query — joined on P297, the ISO code
+`)
+  const rows = await ask(`
+    SELECT ?code ?label WHERE {
+      ?c wdt:P297 ?code .
+      ?c rdfs:label ?label .
+      FILTER(LANG(?label) IN (${langFilter}))
+    }`)
+  if (!rows) {
+    console.error("  Wikidata did not answer — nothing written, so a later run retries")
+    process.exitCode = 1
+    return
+  }
+  const key = [...locales].sort().join(",")
+  let hash = 0
+  for (let i = 0; i < key.length; i++) hash = (Math.imul(31, hash) + key.charCodeAt(i)) | 0
+  const slug = `${locales.length}langs-${(hash >>> 0).toString(36)}-${[...locales].sort().slice(0, 4).join("-")}`
+  const out = ndjsonWriter(join(OUT, "labels", `country-${slug}.ndjson`))
+  const perLocale = new Map<string, number>()
+  let found = 0
+  for (const r of rows) {
+    const code = r.code?.value
+    const value = r.label?.value
+    const locale = (r.label as unknown as { "xml:lang"?: string })?.["xml:lang"]
+    if (!code || !value || !locale) continue
+    // Two letters, uppercase — anything else is not an ISO 3166-1 alpha-2 code
+    // and would create a country id for a place that does not exist here.
+    if (!/^[A-Z]{2}$/.test(code)) continue
+    found++
+    perLocale.set(locale, (perLocale.get(locale) ?? 0) + 1)
+    out.write({ placeId: `country:${code}`, locale, value, source: "wikidata" })
+  }
+  await out.close()
+  const top = [...perLocale].sort((a, b) => b[1] - a[1])
+  console.log(`  ${found.toLocaleString()} country names`)
+  console.log(`  ${top.map(([l, n]) => `${l}+${n}`).join("  ")}`)
+  console.log(`\n  → ${join(OUT, "labels", `country-${slug}.ndjson`)}. Fold in with: bun run places merge`)
+}
+
 export async function labels(argv: string[]): Promise<void> {
   const localeArg = argv.find((a) => a.startsWith("--locales="))
   const tierArg = argv.includes("--subdivisions") ? "subdivision" : "city"
@@ -110,6 +165,8 @@ export async function labels(argv: string[]): Promise<void> {
   } else {
     locales = localeArg ? localeArg.slice("--locales=".length).split(",") : DEFAULT_LOCALES
   }
+  if (argv.includes("--countries")) return countryLabels(locales)
+
   const limitArg = argv.find((a) => a.startsWith("--limit="))
   const limit = limitArg ? Number(limitArg.slice("--limit=".length)) : Infinity
   const country = argv.find((a) => a.startsWith("--country="))?.slice("--country=".length)?.toUpperCase()

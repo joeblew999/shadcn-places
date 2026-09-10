@@ -22,7 +22,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join, resolve as resolvePath } from "node:path"
 import { records, ndjsonWriter } from "../lib/ndjson.ts"
-import { KIND_RANK, isLatinLocale, isLatinScript, type Kind } from "../lib/sources.ts"
+import { KIND_RANK, canonicalLocale, isLatinLocale, isLatinScript, type Kind } from "../lib/sources.ts"
 import type { Place, Name } from "./extract.ts"
 
 const OUT = process.env.PLACES_OUT ?? ".build"
@@ -127,15 +127,35 @@ export function loadOverrides(root = resolvePath(import.meta.dirname, "../..")):
 }
 
 export function resolve(place: Place, overrides: Overrides = {}): Resolved[] {
+  /**
+   * Grouped by the *canonical* tag, which is what makes them compete at all.
+   *
+   * Filipino arrived as `tl` from one source and `fil` from another, and this
+   * function put them in two buckets that never met. The database then held two
+   * half-populated Filipinos and the API, negotiating `locale IN (locale, base)`,
+   * could reach exactly one of them: `fil` reported 0% subdivisions while 446 real
+   * Filipino subdivision names sat under `tl`.
+   *
+   * Canonicalising here rather than at read time is deliberate. It is the same
+   * argument as `coverage.latin`: the merge and the Worker must agree, and the
+   * only way two processes agree about a derived fact is for one of them to
+   * derive it and the other to read it.
+   *
+   * `actualKind` is computed after the rename, so a value that is a real name in
+   * one tag is not demoted for arriving under the other.
+   */
   const byLocale = new Map<string, Name[]>()
   for (const [locale, value] of Object.entries(overrides[place.id] ?? {})) {
-    byLocale.set(locale, [{ locale, value, source: "overrides", kind: "override" }])
+    const canonical = canonicalLocale(locale)
+    byLocale.set(canonical, [{ locale: canonical, value, source: "overrides", kind: "override" }])
   }
   for (const n of place.names) {
     if (!n.value?.trim()) continue
-    const list = byLocale.get(n.locale) ?? []
-    list.push({ ...n, kind: actualKind(n, place.pivot) })
-    byLocale.set(n.locale, list)
+    const locale = canonicalLocale(n.locale)
+    const named = { ...n, locale }
+    const list = byLocale.get(locale) ?? []
+    list.push({ ...named, kind: actualKind(named, place.pivot) })
+    byLocale.set(locale, list)
   }
   const out: Resolved[] = []
   for (const [locale, candidates] of byLocale) {
@@ -192,7 +212,7 @@ function loadLabels(): Map<string, Name[]> {
 export async function merge(argv: string[]): Promise<void> {
   const overrides = loadOverrides()
   const labels = loadLabels()
-  if (labels.size) console.log(`  folding in Wikidata labels for ${labels.size.toLocaleString()} cities`)
+  if (labels.size) console.log(`  folding in ${labels.size.toLocaleString()} places' worth of fetched labels`)
   const tiers = argv.filter((a) => !a.startsWith("--"))
   const wanted = tiers.length ? tiers : ["countries", "subdivisions", "cities"]
   for (const tier of wanted) {

@@ -40,7 +40,7 @@ elsewhere in the world are the remaining gap.
 
 | Source | Licence | Earns its place by |
 | --- | --- | --- |
-| **CLDR** | Unicode | Countries, complete, in every locale ICU carries. Nothing else needed at that tier |
+| **CLDR** | Unicode | Countries, complete, in every locale ICU carries — about a hundred. The other 140 languages that hold real place names came from Wikidata via P297 on 2026-09-10, after Wu and Cantonese were found at zero |
 | **dr5hn** | ODbL | Subdivisions in 19 languages at ~100%. The best single subdivision source |
 | **OpenStreetMap** | ODbL | Subdivisions in the languages dr5hn lacks — th, vi, id, sw, he, el, bn, ms. Joined on ISO 3166-2, which *is* our id |
 | **GeoNames** | CC BY 4.0 | The city inventory, and every city in its own language: 83% for Thai cities in Thailand, 94% Japanese in Japan, 100% Russian in Russia |

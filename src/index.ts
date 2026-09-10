@@ -26,7 +26,7 @@ import { OpenAPIGenerator } from "@orpc/openapi"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
 import { ZodToJsonSchemaConverter } from "@orpc/zod"
 import { contract } from "./api/contract.ts"
-import { SOURCES, isLatinLocale } from "../scripts/lib/sources.ts"
+import { SOURCES, canonicalLocale, isLatinLocale } from "../scripts/lib/sources.ts"
 /**
  * Literate readers per language, from CLDR, bundled rather than queried.
  *
@@ -158,8 +158,18 @@ function nameOf(code: string, inLocale: string): string {
   }
 }
 
-/** `pt-BR` → [`pt-BR`, `pt`]. One extra tag, not a negotiation library. */
-const tags = (locale: string): [string, string] => [locale, locale.split("-")[0]]
+/**
+ * `pt-BR` → [`pt-BR`, `pt`]. One extra tag, not a negotiation library.
+ *
+ * Canonicalised first, using the same CLDR table the merge used to store the
+ * names. Without it a caller asking for `tl` is answered from an empty `tl`
+ * while every Filipino name sits under `fil` — which is exactly what happened,
+ * and it looked like a language this service simply did not have.
+ */
+const tags = (locale: string): [string, string] => {
+  const canonical = canonicalLocale(locale)
+  return [canonical, canonical.split("-")[0]]
+}
 
 /**
  * Translated names first, then the fallbacks, each group alphabetical.
@@ -450,7 +460,7 @@ const router = os.router({
          * no names for at all, whose tiers are therefore all zero, so the worst a
          * runtime disagreement can do here is label an empty result.
          */
-        latinScript: stored === undefined ? isLatinLocale(input.locale) && isLatinLocale(base) : stored === 1,
+        latinScript: stored === undefined ? isLatinLocale(locale) && isLatinLocale(base) : stored === 1,
         tiers: results,
       }
     }),

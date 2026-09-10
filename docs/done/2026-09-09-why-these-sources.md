@@ -2,7 +2,7 @@
 
 Status: written 2026-09-09 as the plan for this service, moved here 2026-09-10
 when the service became its own repository. **The service now exists** — see
-[the first build](done/2026-09-10-01-first-build.md) for what runs. This document is
+[the first build](2026-09-10-01-first-build.md) for what runs. This document is
 the argument behind it: five candidate sources, measured rather than read about,
 and the reasoning that picked each tier's winner.
 
@@ -603,7 +603,7 @@ keep in step.
 
 The mechanism, checked against the installed package rather than assumed:
 `@orpc/client`'s fetch adapter accepts a custom `fetch`
-([`adapters/fetch/index.d.mts:21`](../node_modules/@orpc/client/dist/adapters/fetch/index.d.mts)),
+([`adapters/fetch/index.d.mts:21`](../../node_modules/@orpc/client/dist/adapters/fetch/index.d.mts)),
 and a Cloudflare service binding *is* a `fetch`. So the same client, with the same
 types, is pointed at `env.PLACES.fetch` inside our Worker and at a URL everywhere
 else.
@@ -890,7 +890,7 @@ pass per language — so the service keeps its **own** policy there (a coverage
 threshold, or on-demand for a language somebody asks for), decided by the service,
 not inherited from an app.
 
-[`scripts/ops/refdata.ts`](../scripts/places/score.ts), the scorer in this repo,
+[`scripts/ops/refdata.ts`](../../scripts/places/score.ts), the scorer in this repo,
 does read `ALL_LOCALES` — correctly, because it answers a different question:
 *would this source serve **us**?* That is a consumer's question, and it is why the
 scorer stays here while the ETL does not.
@@ -1022,57 +1022,74 @@ for us; if it is not, we will find out before a stranger does.
 
 ## Steps
 
-- [ ] **1 · The sibling checkout, its licences, and the Worker skeleton.**
+**All thirteen resolved. Twelve built, one deferred by decision.** Ticked
+2026-09-10 with the proof beside each — they sat unticked for a day while the work
+shipped, which made this document say the opposite of the truth.
+
+- [x] **1 · The sibling checkout, its licences, and the Worker skeleton.**
       `../shadcn-places`, beside `../remy-sport-biz`: oRPC contract, D1 schema,
       `wrangler.toml`, its own `AGENTS.md`, `docs/` and `tests/repo/`, plus
       `LICENSE` (MIT, code) and `LICENSE-DATA` (ODbL-1.0, data) as two separate
       statements, the GeoNames credit, the not-affiliated-with-shadcn/ui line, and
       the API-versus-database licence answer above the fold. Local git only —
       publishing and deploying stay the PO's two commands.
+      *Done. `../shadcn-places` exists, is public, and is deployed. `LICENSE` (MIT) and `LICENSE-DATA` (ODbL-1.0) are separate files; `tests/repo/licences.test.ts` asserts every share-alike source is credited in the exact wording it asks for.*
 - [x] **2 · Licence question — answered by the PO 2026-09-09: dr5hn is in.** All
       three tiers get built. ODbL is discharged by this repo being public and
       carrying the derived rows.
-- [ ] **3 · `stage` — fetch each source into R2 unchanged**, with a `fetched_at`.
+- [x] **3 · `stage` — fetch each source into R2 unchanged**, with a `fetched_at`.
       Knows nothing about languages. This is the step that costs 1.2 GB, and it
       runs when a *source* changes, not when a language is added.
-- [ ] **4 · `extract` — stream, never parse whole.** Every source read as a
+      *Done. `scripts/places/stage.ts`. `places stage --sample` for a laptop that does not want 1.2GB today.*
+- [x] **4 · `extract` — stream, never parse whole.** Every source read as a
       stream into NDJSON, because the 128 MB isolate limit is not negotiable and
       retrofitting streaming later is a rewrite. **Keeps every language the source
       carries** — filtering would be extra work, not less.
-- [ ] **5 · `merge` — one row per place, names keyed by (locale, source, kind).**
+      *Done. `scripts/places/extract.ts`, streaming throughout. The one place it did not — a JSON parser that rescanned each chunk from index 0 — parsed 56 of 5,308 rows and reported success. Recorded in [the first build](2026-09-10-01-first-build.md).*
+- [x] **5 · `merge` — one row per place, names keyed by (locale, source, kind).**
       `kind` is `translated` / `native` / `romanised` / `transliterated`, and
       precedence between them is a rule rather than a judgement. This is what makes
       a re-run additive, an attribution line buildable, and a licence removable.
-- [ ] **6 · Countries from CLDR** — 280 territories in every locale ICU carries,
+      *Done. `scripts/places/merge.ts`, and `KIND_RANK` in `scripts/lib/sources.ts` is the rule. `transliterated` was split out from `romanised` on 2026-09-10 once the history showed Tatar's "Çikago" filed alongside the English pivot.*
+- [x] **6 · Countries from CLDR** — 280 territories in every locale ICU carries,
       not just the ones some app declares. Snapshotted, because the runtime's
       wording is editorial and changes with its ICU version.
-- [ ] **7 · Subdivisions — dr5hn plus GeoNames.** 5,308 rows: dr5hn's nineteen
+      *Done. 257 countries, complete in every locale ICU carries — and, since 2026-09-10, in 140 it does not. CLDR stops at the locales ICU ships, which left Wu and Cantonese at **zero** country names with 158M readers between them; `places labels --countries` joins Wikidata on P297 and took both to 98%.*
+- [x] **7 · Subdivisions — dr5hn plus GeoNames.** 5,308 rows: dr5hn's nineteen
       languages, `native` for the endonym, GeoNames for what dr5hn lacks, romanised
       pivot underneath.
-- [ ] **8 · Cities — inventory from GeoNames, languages from Wikidata**, joined on
+      *Done. 5,304 subdivisions from dr5hn plus GeoNames plus OSM, joined on ISO 3166-2. 77–100% for the top languages.*
+- [x] **8 · Cities — inventory from GeoNames, languages from Wikidata**, joined on
       `P1566` (26,282 city items) or GeoNames' own `wkdt` rows, whichever is denser.
       Romanised pivot always, own-language name from GeoNames, cross-language from
       Wikidata at every population band — 84% `ja` and 89% `ru` in the 15k–100k band
       where GeoNames manages 7% and 20%.
-- [ ] **9 · D1 schema, load, and the indexes the cascade needs.** Country →
+      *Done. 69,700 cities from `cities5000`, names from Wikidata via P1566 and from OpenStreetMap matched by coordinate. The OSM pass added 146,510 names Wikidata did not have.*
+- [x] **9 · D1 schema, load, and the indexes the cascade needs.** Country →
       subdivision → city, each filtered by the one above. A check that no city query
       can run unfiltered: unfiltered is a 152,970-row scan that D1 bills for and, on
       the free plan, refuses.
-- [ ] **10 · The oRPC contract, and an OpenAPI document from it.** One contract,
+      *Done. `src/db/schema.ts` and `scripts/places/load.ts`. `tests/repo/queries.test.ts` asserts against the published OpenAPI document that a city search cannot be expressed without a country.*
+- [x] **10 · The oRPC contract, and an OpenAPI document from it.** One contract,
       three transports — a service binding for a Worker on the same account, a URL
       for anyone else's, plain HTTP for anything not TypeScript. `locale` is a
       request parameter: **the service holds every language and the caller asks for
       what it wants.**
-- [ ] **11 · The cascading picker as a shadcn registry item**, so the control is
+      *Done. `src/api/contract.ts`, eight procedures, three transports. `/api/spec.json` is generated from the contract; oRPC 2.0 was adopted on 2026-09-10 because 1.15 could not generate a spec for any dynamic path parameter.*
+- [x] **11 · The cascading picker as a shadcn registry item**, so the control is
       installable by anyone, not only by us.
-- [ ] **12 · A coverage report per language**, printable before a language is
+      *Done. `places-picker`, installable from `/r/places-picker.json` — and `places-coverage` beside it. The opt-in install test installs both from the deployed registry and compiles them under a consumer's tsconfig.*
+- [x] **12 · A coverage report per language**, printable before a language is
       adopted rather than discovered after: "Polish — countries 100%, subdivisions
       100%, cities over 100k 71%". The data is already there to count.
+      *Done. `/api/coverage/{locale}` and `places report`. It returns **two** numbers and `latinScript` says which one to read, because a single figure reports Spanish cities at 14% when a Spanish reader gets a correct name for 51% of them.*
 - [ ] **13 · Transliteration — deferred by decision, kept possible by design.**
       Not built now. What is built now: the `kind` on every name, names addable per
       (place, locale) without an ETL rerun, and real names beating generated ones by
       rule. The hole it will fill is `th`, `zh` and `ko` below 100,000 people, where
       a Latin fallback is unreadable to the reader it is for.
+
+
 
 ## Not this plan — the app integration, later
 
@@ -1339,7 +1356,7 @@ bun run places score            every candidate
 bun run places score cldr       one of them
 ```
 
-[`scripts/ops/refdata.ts`](../scripts/places/score.ts) holds the candidates, their
+[`scripts/ops/refdata.ts`](../../scripts/places/score.ts) holds the candidates, their
 licences, the tag aliases each dataset needs (`tl`→`fil` for ICU, `zh`→`zh-CN`
 for dr5hn) and what each download costs. It scores against `ALL_LOCALES` rather
 than a list of its own, so the answer changes when a language is declared — a
