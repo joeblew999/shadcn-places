@@ -140,6 +140,57 @@ export const contract = {
   },
 
   /**
+   * Which languages this service can actually offer, and how well.
+   *
+   * Distinct from `/matrix`, which ranks what is broken. This answers the
+   * question a picker asks: *what can I put in the list, and in what order.*
+   * Same data, opposite framing, and conflating them produced a language picker
+   * sorted by how bad the coverage was.
+   *
+   * Every locale carries its **endonym** — its name in its own language —
+   * because a picker exists for somebody who cannot read the current interface.
+   * Nobody looking for Japanese scans for "ญี่ปุ่น".
+   */
+  locales: {
+    list: oc
+      .route({ method: "GET", path: "/locales" })
+      .input(
+        z.object({
+          /**
+           * Only locales with at least this much coverage in `tier`.
+           *
+           * The default of 50 is a judgement: below it a reader sees more
+           * fallbacks than names, and offering the language implies more than is
+           * there. Pass 0 for everything the database holds — 664 locales, which
+           * is the right answer for exploring and the wrong one for a dropdown.
+           */
+          min: z.coerce.number().int().min(0).max(100).default(50),
+          /** Which tier the threshold applies to. A picker for cities should ask about cities. */
+          tier: z.enum(["country", "subdivision", "city"]).default("country"),
+          /** Order: by how many people read it, or alphabetically by endonym. */
+          by: z.enum(["readers", "name"]).default("readers"),
+        }),
+      )
+      .output(
+        z.object({
+          locales: z.array(
+            z.object({
+              code: z.string(),
+              /** The language in its own language. Falls back to the code if ICU has no name. */
+              endonym: z.string(),
+              /** The language named in English, for an operator reading a dashboard. */
+              english: z.string(),
+              /** Literate readers, from CLDR. 0 means no estimate exists, not none. */
+              readers: z.number(),
+              /** Coverage per tier, as a percentage a reader would actually experience. */
+              coverage: z.record(z.string(), z.number()),
+            }),
+          ),
+        }),
+      ),
+  },
+
+  /**
    * The whole matrix, and what each gap costs in readers.
    *
    * `/coverage/{locale}` answers "how good is your Thai". This answers the

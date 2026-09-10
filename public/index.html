@@ -48,6 +48,14 @@
   th { color: var(--muted); font-weight: 600; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
   .note { color: var(--muted); font-size: .85rem; }
+  table.heat td, table.heat th { font-variant-numeric: tabular-nums; }
+  /* Coverage as colour. Deliberately three bands rather than a gradient: the
+     decision a reader makes is "can I use this / partly / no", not a percentile. */
+  .cov { display: inline-block; min-width: 3.1rem; text-align: right; padding: .05rem .35rem;
+         border-radius: .25rem; font-size: .8rem; }
+  .cov.good { background: color-mix(in srgb, #16a34a 22%, transparent); }
+  .cov.part { background: color-mix(in srgb, #d97706 22%, transparent); }
+  .cov.poor { background: color-mix(in srgb, #dc2626 18%, transparent); color: var(--muted); }
 </style>
 </head>
 <body>
@@ -80,6 +88,19 @@
   <p class="note" id="hint"></p>
 
   <section>
+    <h2>What the service has, and what it costs to be missing</h2>
+    <p class="note">
+      Every language with any coverage, coloured by how much. Ranked by
+      <b>readers × places unnamed</b> — “69,700 places missing” is the same number for
+      Khmer and Hindi, and those are not the same problem.
+    </p>
+    <table class="heat"><thead><tr><th>language</th><th>readers</th>
+      <th>countries</th><th>states</th><th>cities</th><th>where the readers are</th></tr></thead>
+    <tbody id="heat"></tbody></table>
+    <p class="note" id="heatnote"></p>
+  </section>
+
+  <section>
     <h2>What this language actually has</h2>
     <table><thead><tr><th>Tier</th><th>Rows</th><th>Named</th><th>Genuinely translated</th></tr></thead>
     <tbody id="coverage"></tbody></table>
@@ -100,13 +121,21 @@
 const API = location.protocol === "file:" ? "https://shadcn-places.gedw99.workers.dev" : location.origin
 document.getElementById("origin").textContent = API
 
-// Deliberately mixed scripts: the interesting cases are the ones where a Latin
-// fallback is unreadable rather than merely unidiomatic.
-const LOCALES = [
-  ["en", "English"], ["th", "ไทย"], ["ja", "日本語"], ["ko", "한국어"], ["zh", "中文"],
-  ["ru", "Русский"], ["ar", "العربية"], ["hi", "हिन्दी"], ["de", "Deutsch"],
-  ["pt", "Português"], ["vi", "Tiếng Việt"], ["sw", "Kiswahili"],
-]
+/**
+ * The language list comes from the service, not from this file.
+ *
+ * It used to be twelve locales typed in here, chosen because they demonstrated
+ * well — in a page whose whole argument is that this service has no language
+ * list. The database holds 664, `/api/locales` reports which of them are worth
+ * offering, and it names each one in its own language because a picker exists
+ * for somebody who cannot read the current interface.
+ *
+ * `min=40` rather than 0: below that a reader sees more fallbacks than names and
+ * offering the language promises more than is there. It is a threshold, and being
+ * a parameter rather than a constant is the point — a consuming app passes its
+ * own, or passes its own list entirely.
+ */
+let LOCALES = [["en", "English", 0]]
 
 const $ = (id) => document.getElementById(id)
 const get = async (path) => (await fetch(`${API}/api${path}`)).json()
@@ -114,7 +143,15 @@ const get = async (path) => (await fetch(`${API}/api${path}`)).json()
 const locale = $("locale"), country = $("country"), subdivision = $("subdivision")
 const q = $("q"), cities = $("cities"), hint = $("hint")
 
-for (const [code, label] of LOCALES) locale.add(new Option(`${label}  (${code})`, code))
+async function loadLocales() {
+  const { locales } = await get(`/locales?min=40&tier=country&by=readers`)
+  LOCALES = locales.map((l) => [l.code, l.endonym, l.readers])
+  locale.innerHTML = ""
+  for (const [code, endonym, readers] of LOCALES) {
+    const millions = readers >= 1e6 ? `${Math.round(readers / 1e6)}M` : readers ? "<1M" : "—"
+    locale.add(new Option(`${endonym}  ·  ${code}  ·  ${millions} readers`, code))
+  }
+}
 
 const option = (p) => {
   const o = new Option(p.name, p.id)
@@ -134,6 +171,7 @@ async function loadCountries() {
   subdivision.innerHTML = ""; subdivision.disabled = true
   q.value = ""; q.disabled = true; cities.innerHTML = ""
   loadCoverage()
+  loadHeat()
 }
 
 async function loadSubdivisions() {
@@ -176,6 +214,43 @@ async function searchCities() {
   }, 200)
 }
 
+/**
+ * The matrix, rendered.
+ *
+ * `places matrix` prints something fine in a terminal and unreadable to anyone
+ * deciding whether to adopt this. The same numbers as colour, ranked by readers
+ * affected, answer the question people actually have — is this good enough for my
+ * languages — in about two seconds.
+ */
+async function loadHeat() {
+  const [{ locales }, matrix] = await Promise.all([
+    get(`/locales?min=0&tier=country&by=readers`),
+    get(`/matrix?limit=100`),
+  ])
+  const where = new Map(matrix.gaps.map((g) => [g.locale, g.where]))
+  const band = (n) => (n >= 70 ? "good" : n >= 30 ? "part" : "poor")
+  const cell = (n) => `<span class="cov ${band(n ?? 0)}">${n ?? 0}%</span>`
+  const body = $("heat")
+  body.innerHTML = ""
+  // Only languages somebody actually reads: CLDR has no estimate for many of the
+  // 664, and a row weighted by an unknown is noise in a ranking about impact.
+  const rows = locales.filter((l) => l.readers > 0).slice(0, 30)
+  for (const l of rows) {
+    const tr = document.createElement("tr")
+    const millions = l.readers >= 1e6 ? `${Math.round(l.readers / 1e6)}M` : "<1M"
+    tr.innerHTML =
+      `<td><b></b> <span class="note"></span></td><td>${millions}</td>` +
+      `<td>${cell(l.coverage.country)}</td><td>${cell(l.coverage.subdivision)}</td>` +
+      `<td>${cell(l.coverage.city)}</td><td class="note">${(where.get(l.code) ?? []).join(" ")}</td>`
+    tr.querySelector("b").textContent = l.endonym
+    tr.querySelector(".note").textContent = l.code
+    body.append(tr)
+  }
+  $("heatnote").textContent =
+    `${locales.length} languages in the database; ${rows.length} shown, those CLDR has a reader estimate for. ` +
+    `Green is 70%+, amber 30–70%, red below. Countries are complete everywhere; cities are where the work is.`
+}
+
 async function loadCoverage() {
   const { tiers } = await get(`/coverage/${locale.value}`)
   const order = { country: 0, subdivision: 1, city: 2 }
@@ -195,7 +270,8 @@ country.addEventListener("change", loadSubdivisions)
 subdivision.addEventListener("change", searchCities)
 q.addEventListener("input", searchCities)
 
-locale.value = "ja"
+await loadLocales()
+locale.value = LOCALES.some(([c]) => c === "ja") ? "ja" : LOCALES[0][0]
 await loadCountries()
 country.value = "country:BR"
 await loadSubdivisions()

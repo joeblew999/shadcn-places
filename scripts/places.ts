@@ -31,7 +31,7 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     run: async (argv) => (await import("./places/score.ts")).score(argv),
   },
   labels: {
-    help: "labels [--subdivisions] [--locales=a,b]   names from Wikidata, joined on P1566 or the QID",
+    help: "labels [--gaps] [--subdivisions] [--locales=a,b]   names from Wikidata; --gaps asks the matrix what is missing",
     run: async (argv) => (await import("./places/labels.ts")).labels(argv),
   },
   diff: {

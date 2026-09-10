@@ -12,6 +12,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs"
+import { execSync } from "node:child_process"
 import { resolve } from "node:path"
 import { describe, it, expect } from "vitest"
 
@@ -72,4 +73,48 @@ describe("registry", () => {
       })
     })
   }
+})
+
+describe("nothing hardcodes a list of languages", () => {
+  /**
+   * The mistake this project keeps making, in three different files.
+   *
+   * Once in the ETL, which had a locale list of its own. Once in the scorer, which
+   * imported an application's `ALL_LOCALES` — reasonable in the repository it came
+   * from and wrong in a service that holds every language. Once in the demo, which
+   * offered twelve locales typed into HTML while the database held 664.
+   *
+   * Every instance was defensible when written and every one made the service
+   * quietly narrower than it is. A locale list is a decision that belongs to a
+   * caller, at request time, which is the one claim this whole project rests on.
+   *
+   * `CLDR_LOCALES` in the extractor is the deliberate exception, and it is about
+   * what CLDR *has* rather than what anyone wants. It is named in the allowlist so
+   * that adding a second exception is a conscious act.
+   */
+  const ALLOWED = new Set(["CLDR_LOCALES", "DEFAULT_LOCALES", "NON_LATIN_SCRIPT", "NON_LATIN", "NOT_LANGUAGES"])
+
+  it("has no literal locale array outside the places that declare why", () => {
+    const files = execSync("git ls-files 'src/**/*.ts' 'scripts/**/*.ts' 'public/*.html'", {
+      cwd: ROOT,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean)
+
+    const offenders: string[] = []
+    for (const file of files) {
+      const text = readFileSync(resolve(ROOT, file), "utf8")
+      // Four or more two-letter quoted strings in a row is a language list and
+      // almost nothing else. Three would catch coordinate tuples and ISO pairs.
+      const re = /(?:const|let|var)\s+(\w+)[^=]*=\s*\[\s*(?:"[a-z]{2,3}"|'[a-z]{2,3}')\s*,\s*(?:"[a-z]{2,3}"|'[a-z]{2,3}')\s*,\s*(?:"[a-z]{2,3}"|'[a-z]{2,3}')\s*,\s*(?:"[a-z]{2,3}"|'[a-z]{2,3}')/g
+      for (const m of text.matchAll(re)) {
+        if (!ALLOWED.has(m[1])) offenders.push(`${file}: ${m[1]}`)
+      }
+    }
+    expect(
+      offenders,
+      "a hardcoded language list. The service holds every language; the caller narrows it",
+    ).toEqual([])
+  })
 })

@@ -83,7 +83,29 @@ async function ask(query: string, attempt = 1): Promise<Record<string, { value: 
 
 export async function labels(argv: string[]): Promise<void> {
   const localeArg = argv.find((a) => a.startsWith("--locales="))
-  const locales = localeArg ? localeArg.slice("--locales=".length).split(",") : DEFAULT_LOCALES
+  const tierArg = argv.includes("--subdivisions") ? "subdivision" : "city"
+  /**
+   * `--gaps` asks the matrix instead of taking a list.
+   *
+   * The whole loop in one flag: what is missing, fetch exactly that, re-ask.
+   * Passing `--locales=` by hand is how a run goes stale — the codes get copied
+   * out of a terminal, the data improves, and the next run re-fetches what is
+   * already there. Reading the gap list at the moment of running cannot drift.
+   */
+  let locales: string[]
+  if (argv.includes("--gaps")) {
+    const { gapList } = await import("./matrix.ts")
+    const gaps = await gapList(argv.includes("--remote"), tierArg)
+    const n = Number(argv.find((a) => a.startsWith("--gaps="))?.slice(7) ?? 25)
+    locales = gaps.slice(0, n).map((g) => g.locale)
+    if (!locales.length) {
+      console.log("  no gaps under 70% — nothing to fetch.")
+      return
+    }
+    console.log(`  the matrix says fetch: ${locales.join(", ")}\n`)
+  } else {
+    locales = localeArg ? localeArg.slice("--locales=".length).split(",") : DEFAULT_LOCALES
+  }
   const limitArg = argv.find((a) => a.startsWith("--limit="))
   const limit = limitArg ? Number(limitArg.slice("--limit=".length)) : Infinity
   const country = argv.find((a) => a.startsWith("--country="))?.slice("--country=".length)?.toUpperCase()

@@ -77,6 +77,34 @@ const toPlace = (r: Row) => ({
   population: r.population,
 })
 
+/**
+ * A language's name in its own language, from the runtime's CLDR.
+ *
+ * `tl` is mapped to `fil` because ICU has no `tl` and does not error — it
+ * silently answers in English, so a Filipino reader looking for their language
+ * would find "Tagalog" spelled the way an English speaker writes it. That trap
+ * has now appeared in the country names, the ETL and here.
+ *
+ * Falls back to the code rather than to English: a code is obviously a code, and
+ * an unexpected English name reads as a translation somebody made.
+ */
+function endonymOf(code: string): string {
+  const tag = code === "tl" ? "fil" : code
+  try {
+    return new Intl.DisplayNames([tag], { type: "language", fallback: "none" }).of(tag) ?? code
+  } catch {
+    return code
+  }
+}
+
+function nameOf(code: string, inLocale: string): string {
+  try {
+    return new Intl.DisplayNames([inLocale], { type: "language", fallback: "none" }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
 /** `pt-BR` → [`pt-BR`, `pt`]. One extra tag, not a negotiation library. */
 const tags = (locale: string): [string, string] => [locale, locale.split("-")[0]]
 
@@ -176,6 +204,50 @@ const router = os.router({
         "Wikidata (CC0) and Unicode CLDR. Using this API imposes nothing on your application; " +
         "redistributing the database is what triggers ODbL share-alike. See LICENSE-DATA.",
     })),
+  },
+
+  locales: {
+    list: os.locales.list.handler(async ({ input, context }) => {
+      const totals = await context.env.DB.prepare(`SELECT type, COUNT(*) n FROM place GROUP BY type`)
+        .all<{ type: string; n: number }>()
+      const byType = new Map(totals.results.map((r) => [r.type, r.n]))
+
+      const rows = await context.env.DB.prepare(
+        `SELECT n.locale locale, p.type type,
+                SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END) real
+           FROM name n JOIN place p ON p.id = n.place_id
+          WHERE n.locale != 'und' AND n.locale NOT LIKE '%-%'
+          GROUP BY n.locale, p.type`,
+      ).all<{ locale: string; type: string; real: number }>()
+
+      const speakers = SPEAKERS as Record<string, { t: number; w: string[] }>
+      const byLocale = new Map<string, Record<string, number>>()
+      for (const r of rows.results) {
+        const total = byType.get(r.type) ?? 0
+        if (!total) continue
+        // The pivot is the English name and is not stored as an `en` row.
+        const real = r.locale === "en" ? total : r.real
+        const cov = byLocale.get(r.locale) ?? {}
+        cov[r.type] = Math.round((real / total) * 100)
+        byLocale.set(r.locale, cov)
+      }
+
+      const out: { code: string; endonym: string; english: string; readers: number; coverage: Record<string, number> }[] = []
+      for (const [code, coverage] of byLocale) {
+        if ((coverage[input.tier] ?? 0) < input.min) continue
+        out.push({
+          code,
+          endonym: endonymOf(code),
+          english: nameOf(code, "en"),
+          readers: (speakers[code]?.t ?? 0) * 1000,
+          coverage,
+        })
+      }
+      out.sort((a, b) =>
+        input.by === "readers" ? b.readers - a.readers : a.endonym.localeCompare(b.endonym),
+      )
+      return { locales: out }
+    }),
   },
 
   matrix: {
@@ -331,7 +403,11 @@ export default {
     // where the honest bits — the romanised markers, the coverage table — land.
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const page = await env.REGISTRY.fetch(new Request(new URL("/index.html", url), request))
-      if (page.status !== 404) return page
+      // Wrapped like every other response: the demo's live-reload polls this with
+      // HEAD, and an asset served without the headers is refused by the browser
+      // even same-origin. It failed silently into a catch, which is why it took a
+      // console log to notice the poll had never worked.
+      if (page.status !== 404) return cors(page)
     }
 
     return Response.json(

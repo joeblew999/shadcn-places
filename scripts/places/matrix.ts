@@ -58,11 +58,61 @@ const NON_LATIN = new Set([
   "gu","ta","te","kn","ml","si","ne","mr","my","km","lo","am","ar","fa","ur","ps","he","dv","ug","kk","ky","mn",
 ])
 
+/**
+ * The gap list, as data, so another command can act on it.
+ *
+ * Extracted from the printing because the loop this enables is the point: ask
+ * what is missing, fetch exactly that, re-ask. Copying locale codes out of a
+ * terminal into a `--locales=` flag works once and then goes stale — which it
+ * did. I drove a label pass from the *deployed* matrix while iterating locally,
+ * so it ranked against numbers I had already improved and spent ten minutes
+ * re-fetching languages that were already done.
+ */
+export async function gapList(remote: boolean, tier?: string): Promise<
+  { locale: string; tier: string; value: number; missing: number; readers: number }[]
+> {
+  const totals = query(`SELECT type, COUNT(*) n FROM place GROUP BY type`, remote)
+  const byType = new Map(totals.map((r) => [String(r.type), Number(r.n)]))
+  const cells = query(
+    `SELECT n.locale locale, p.type type,
+            SUM(CASE WHEN n.kind IN ('translated','native','override') THEN 1 ELSE 0 END) real
+       FROM name n JOIN place p ON p.id = n.place_id
+      WHERE n.locale != 'und' GROUP BY n.locale, p.type`,
+    remote,
+  )
+  const speakers = loadSpeakers()
+  const out: { locale: string; tier: string; value: number; missing: number; readers: number }[] = []
+  for (const c of cells) {
+    const locale = String(c.locale)
+    if (locale.includes("-")) continue
+    const type = String(c.type)
+    if (tier && type !== tier) continue
+    const total = byType.get(type) ?? 0
+    if (!total) continue
+    const real = locale === "en" ? total : Number(c.real)
+    const value = pct(real, total)
+    if (value >= 70) continue
+    const who = speakers.get(locale)
+    out.push({ locale, tier: type, value, missing: total - real, readers: who?.total ?? 0 })
+  }
+  return out.sort((a, b) => b.readers * b.missing - a.readers * a.missing)
+}
+
 export async function matrix(argv: string[]): Promise<void> {
   const remote = argv.includes("--remote")
   const top = Number(argv.find((a) => a.startsWith("--top="))?.slice(6) ?? 25)
   const only = argv.filter((a) => !a.startsWith("--"))
-  console.log(`Reading the ${remote ? "deployed" : "local"} database.\n`)
+  /**
+   * Local by default, and it says which.
+   *
+   * The deployed database lags whatever is being built, so ranking against it
+   * while iterating optimises for a version that is already superseded. `--remote`
+   * is for "what are people actually getting", which is a different question and
+   * a rarer one.
+   */
+  console.log(`Reading the ${remote ? "DEPLOYED" : "local"} database.`)
+  if (!remote) console.log("(--remote for what is being served; local is what you are building)\n")
+  else console.log("")
 
   const totals = query(`SELECT type, COUNT(*) n FROM place GROUP BY type`, remote)
   const byType = new Map(totals.map((r) => [String(r.type), Number(r.n)]))
