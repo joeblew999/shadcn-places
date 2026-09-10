@@ -15,6 +15,13 @@
       "when": 1789008420698,
       "tag": "0001_normal_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789015580642,
+      "tag": "0002_mature_network",
+      "breakpoints": true
     }
   ]
 }

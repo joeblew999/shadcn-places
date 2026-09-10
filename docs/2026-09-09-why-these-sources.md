@@ -2,7 +2,7 @@
 
 Status: written 2026-09-09 as the plan for this service, moved here 2026-09-10
 when the service became its own repository. **The service now exists** — see
-[the first build](2026-09-10-01-first-build.md) for what runs. This document is
+[the first build](done/2026-09-10-01-first-build.md) for what runs. This document is
 the argument behind it: five candidate sources, measured rather than read about,
 and the reasoning that picked each tier's winner.
 

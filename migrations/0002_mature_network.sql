@@ -1,0 +1,1 @@
+ALTER TABLE `coverage` ADD `latin` integer DEFAULT 1 NOT NULL;

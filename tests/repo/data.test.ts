@@ -277,3 +277,94 @@ describe("the pipeline is the only writer that decides", () => {
     expect(src("scripts/places/merge.ts")).toMatch(/readdirSync\(dir\)/)
   })
 })
+
+/**
+ * The script classification matches the scripts the data is actually written in.
+ *
+ * This is the check that would have caught the thing it now guards.
+ * `NON_LATIN_SCRIPT` was fifty language codes typed by hand, and by the time the
+ * database held 664 locales it was missing thirty-nine of them — Egyptian Arabic
+ * with 12,681 names, Tatar with 8,177, Wu, Cantonese, Chechen, Bashkir, Odia. All
+ * classified as Latin-script because nobody had thought of them. It also had
+ * Kurdish wrong in the other direction: `ku` is Kurmanji and is written in Latin.
+ *
+ * Two things followed. `/api/matrix` counted their Latin fallbacks as real names.
+ * And `resolve()` in merge.ts gates its demotion of a Latin value to `romanised`
+ * on this very classification — so for thirty-nine languages, the honesty check
+ * this project is built around was not running at all.
+ *
+ * ## Why this reads the build output rather than recomputing
+ *
+ * The obvious test calls the classifier and compares. It would be worse than
+ * nothing, because the classifier's fallback is `Intl.Locale#maximize` and that
+ * answers differently per runtime — Bun and Node disagree about 30 of the 710
+ * locales here, and workerd is a third. A test that recomputes under vitest
+ * (Node) proves something about Node and nothing about the ETL (Bun) or the
+ * Worker (workerd).
+ *
+ * So the classification is decided once, by the ETL, and written into
+ * `coverage.latin`. This reads the statements the ETL actually emitted and checks
+ * them against the names it emitted them from — the artefact, not a re-run.
+ */
+describe("what we say a language is written in", () => {
+  const LOAD = resolve(ROOT, ".build/load.sql")
+  const haveLoad = () => existsSync(LOAD) && have("cities")
+  // Enough names to be evidence rather than an accident of one source. Below it
+  // the ETL falls back to CLDR and there is nothing here to check it against.
+  const MINIMUM = 150
+
+  it.skipIf(!haveLoad())("marks as non-Latin exactly the locales whose names are not Latin", async () => {
+    const { isLatinScript } = await import("../../scripts/lib/sources.ts")
+
+    /**
+     * What the ETL decided, read back out of the SQL it wrote.
+     *
+     * `UPDATE coverage SET latin = 0 WHERE locale IN ('ar','be',...)`, possibly
+     * several times because the list is chunked the way the inserts are.
+     */
+    const sql = readFileSync(LOAD, "utf8")
+    const decidedNonLatin = new Set<string>()
+    for (const m of sql.matchAll(/UPDATE coverage SET latin = 0 WHERE locale IN \(([^)]*)\);/g)) {
+      for (const lit of m[1].split(",")) decidedNonLatin.add(lit.trim().slice(1, -1).replace(/''/g, "'"))
+    }
+    expect(
+      decidedNonLatin.size,
+      "load.sql marks no locale as non-Latin — the classification did not run, and every " +
+        "romanised fallback in every script is being counted as a translation",
+    ).toBeGreaterThan(50)
+
+    const seen = new Map<string, { n: number; latin: number }>()
+    for await (const p of records<MergedPlace>(built("cities"))) {
+      for (const name of p.names) {
+        // The script-neutral romanisation would drag every count toward Latin.
+        if (name.locale === "und") continue
+        const s = seen.get(name.locale) ?? { n: 0, latin: 0 }
+        s.n++
+        if (isLatinScript(name.value)) s.latin++
+        seen.set(name.locale, s)
+      }
+    }
+
+    const wrong: string[] = []
+    for (const [locale, s] of seen) {
+      if (s.n < MINIMUM) continue
+      const share = s.latin / s.n
+      const calledLatin = !decidedNonLatin.has(locale)
+      // Only the clear cases. A language written both ways sits in the middle and
+      // is a judgement rather than a defect.
+      if (share > 0.85 && !calledLatin) {
+        wrong.push(`${locale}: marked non-Latin, but ${Math.round(share * 100)}% of ${s.n} names are Latin`)
+      }
+      if (share < 0.15 && calledLatin) {
+        wrong.push(`${locale}: left as Latin, but ${Math.round((1 - share) * 100)}% of ${s.n} names are not`)
+      }
+    }
+
+    expect(
+      wrong,
+      "the ETL's script classification disagrees with the names it classified. If a language is " +
+        "genuinely written both ways, add it to SCRIPT_OVERRIDES in scripts/lib/sources.ts with the " +
+        "reason — a language wrongly called Latin is one whose fallbacks are counted as translations",
+    ).toEqual([])
+  })
+})

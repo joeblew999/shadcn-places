@@ -22,7 +22,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join, resolve as resolvePath } from "node:path"
 import { records, ndjsonWriter } from "../lib/ndjson.ts"
-import { KIND_RANK, NON_LATIN_SCRIPT, isLatinScript, type Kind } from "../lib/sources.ts"
+import { KIND_RANK, isLatinLocale, isLatinScript, type Kind } from "../lib/sources.ts"
 import type { Place, Name } from "./extract.ts"
 
 const OUT = process.env.PLACES_OUT ?? ".build"
@@ -67,7 +67,7 @@ function actualKind(name: Name, pivot: string): Kind {
    * not, nobody has written this place in Thai, and saying otherwise makes the
    * coverage numbers a claim rather than a measurement.
    */
-  if (NON_LATIN_SCRIPT.has(name.locale) && isLatinScript(name.value)) return "romanised"
+  if (!isLatinLocale(name.locale) && isLatinScript(name.value)) return "romanised"
   return name.kind
 }
 

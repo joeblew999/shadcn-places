@@ -117,6 +117,21 @@ export const coverage = sqliteTable(
     named: integer("named").notNull(),
     /** Excluding romanised fallbacks. The figure every other script wants. */
     real: integer("real").notNull(),
+    /**
+     * Which of the two figures above means anything for this locale — 1 if a
+     * Latin string reads correctly here, 0 if it does not.
+     *
+     * Stored rather than computed at request time because `Intl.Locale#maximize`
+     * gives different answers in different runtimes: Bun and Node disagree about
+     * 30 of the 710 locales here, and workerd is a third ICU. The merge (Bun)
+     * uses this to decide whether a Latin value is a translation or a fallback,
+     * and the Worker (workerd) uses it to report coverage — so the two must be
+     * reading one answer, not asking the same question twice.
+     *
+     * Defaults to 1, which overstates rather than hides: a locale wrongly called
+     * Latin looks better than it is and somebody notices.
+     */
+    latin: integer("latin").notNull().default(1),
   },
   (t) => [primaryKey({ columns: [t.locale, t.type] })],
 )

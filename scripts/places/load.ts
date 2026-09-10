@@ -24,6 +24,7 @@ import { gunzipSync } from "node:zlib"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve as resolvePath } from "node:path"
 import { records } from "../lib/ndjson.ts"
+import { classifyScript, isLatinScript } from "../lib/sources.ts"
 import type { MergedPlace } from "./merge.ts"
 
 const OUT = process.env.PLACES_OUT ?? ".build"
@@ -112,10 +113,30 @@ export async function load(argv: string[]): Promise<void> {
    *
    * A second pass over NDJSON is cheap because nothing is held in memory.
    */
+  /**
+   * What script each locale's names are actually written in.
+   *
+   * Accumulated during the place pass because it visits every record even in
+   * delta mode, so this costs a regex per name and no extra read of the file.
+   * The answer is written into `coverage.latin` below, which is what makes it one
+   * answer shared by the merge, the Worker and the refresh rather than three
+   * runtimes each asking `Intl` and getting their own.
+   */
+  const script = new Map<string, { n: number; latin: number }>()
+
   const placeRows: string[] = []
   for (const tier of wanted) {
     for await (const p of records<MergedPlace>(join(OUT, `${tier}.merged.ndjson`))) {
       places++
+      for (const nm of p.names) {
+        // `und` is the script-neutral romanisation and would drag every count
+        // toward Latin; it is excluded everywhere else for the same reason.
+        if (nm.locale === "und") continue
+        const seen = script.get(nm.locale) ?? { n: 0, latin: 0 }
+        seen.n++
+        if (isLatinScript(nm.value)) seen.latin++
+        script.set(nm.locale, seen)
+      }
       placeRows.push(
         `(${q(p.id)},${q(p.type)},${q(p.pivot)},${s(p.parent)},${s(p.country)},${n(p.lat)},${n(p.lon)},${n(p.population)},${s(p.wikidata)})`,
       )
@@ -179,6 +200,35 @@ SELECT n.locale, p.type, COUNT(*),
  WHERE n.locale != 'und'
  GROUP BY n.locale, p.type;
 `)
+
+  /**
+   * Which locales a Latin string does not serve, decided here and only here.
+   *
+   * `coverage.latin` defaults to 1, so this marks the exceptions. Emitted as a
+   * literal list rather than computed in SQL because the question is "what script
+   * is this written in", and SQLite has no Unicode script property — but also
+   * because it must be *decided once*. `Intl.Locale#maximize` answers differently
+   * in Bun, in Node and in workerd, and the merge, the tests and the Worker were
+   * each asking it separately.
+   *
+   * Anyone loading these dumps into their own SQLite gets the column with the
+   * values we used, which is the point: the coverage numbers in the file mean the
+   * same thing as the coverage numbers we serve.
+   */
+  const nonLatin = [...script]
+    .filter(([locale, observed]) => !classifyScript(locale, observed))
+    .map(([locale]) => locale)
+    .sort()
+  if (nonLatin.length) {
+    // Chunked: the list is a few hundred locales and D1 rejects an over-long
+    // statement, which is the same reason the inserts above are batched.
+    for (let i = 0; i < nonLatin.length; i += BATCH) {
+      const slice = nonLatin.slice(i, i + BATCH).map(q).join(",")
+      out.write(`UPDATE coverage SET latin = 0 WHERE locale IN (${slice});
+`)
+    }
+  }
+  console.log(`  ${nonLatin.length} of ${script.size} locales need a non-Latin script to read`)
   out.write("\n-- no COMMIT: see the note above on remote D1 and transactions\n")
   await new Promise<void>((resolve) => out.end(resolve))
 

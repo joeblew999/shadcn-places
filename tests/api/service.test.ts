@@ -218,6 +218,39 @@ describe("it says what it knows", () => {
     expect(gaps.every((g) => !g.locale.includes("-"))).toBe(true)
   })
 
+  it.skipIf(!up)("ranks gaps by the number a reader of that language would experience", async () => {
+    /**
+     * The matrix and `/coverage/{locale}` must not disagree about the same language.
+     *
+     * They did, for every Latin-script locale. The matrix counted `translated` —
+     * romanised fallbacks excluded — for everything, so Spanish cities read 14%
+     * while `/coverage/es` said `named` 51% and `latinScript: true`, which is
+     * the endpoint telling you to read the 51%.
+     *
+     * That is not two views of one truth. It made Spanish the second largest gap
+     * in the world, and `gapLocales()` in refresh.ts picks the weekly SPARQL
+     * budget off this ranking — so the self-improving half of this service was
+     * aiming at languages whose fallback already reads correctly.
+     */
+    const { gaps } = (await (await api("/matrix?limit=12")).json()) as {
+      gaps: { locale: string; tier: string; coverage: number }[]
+    }
+    for (const gap of gaps) {
+      const cov = (await (await api(`/coverage/${gap.locale}`)).json()) as {
+        latinScript: boolean
+        tiers: { type: string; total: number; named: number; translated: number }[]
+      }
+      const tier = cov.tiers.find((t) => t.type === gap.tier)
+      expect(tier, `${gap.locale}/${gap.tier} is ranked but has no coverage row`).toBeDefined()
+      const meaningful = cov.latinScript ? tier!.named : tier!.translated
+      expect(
+        gap.coverage,
+        `${gap.locale} (${gap.tier}) is ranked at ${gap.coverage}% but /coverage/${gap.locale} reports ` +
+          `${Math.round((meaningful / tier!.total) * 100)}% as the figure to read for a ${cov.latinScript ? "Latin" : "non-Latin"}-script language`,
+      ).toBe(Math.round((meaningful / tier!.total) * 100))
+    }
+  })
+
   it.skipIf(!up)("offers languages named in their own language", async () => {
     const { locales } = (await (await api("/locales?min=70&tier=country")).json()) as {
       locales: { code: string; endonym: string }[]

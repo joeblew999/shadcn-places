@@ -61,6 +61,25 @@ const ENDPOINT = "https://query.wikidata.org/sparql"
  * affects. A language nobody reads and a language we have never had are both
  * excluded — the first is not worth the queries, the second is not a gap but an
  * absence we do not claim to have filled.
+ *
+ * ## Non-Latin scripts only, and that is the whole point
+ *
+ * This counted `real` — names excluding the romanised fallbacks — for every
+ * language, which meant Spanish looked like the second worst gap in the world.
+ * It is not: Spanish cities are `named` 51% and `translated` 14%, and the
+ * difference is names identical to the English pivot, which for Spanish are
+ * usually right. São Paulo is São Paulo in Spanish.
+ *
+ * So a rate-limited weekly budget of SPARQL queries was being aimed at
+ * languages whose fallback already reads correctly, and away from Hindi,
+ * Bengali and Arabic, where a Latin string is simply unreadable. Restricting
+ * this to non-Latin scripts is not a refinement of the ranking; it is the
+ * difference between the refresh doing something and doing nothing.
+ *
+ * Latin-script languages are not abandoned — they are just not what *this*
+ * fixes. Their gaps are diacritics and exonyms, which come from OSM and dr5hn
+ * through the ETL rather than from asking Wikidata for a label that will come
+ * back as the English string again.
  */
 async function gapLocales(env: Env, limit = 12): Promise<string[]> {
   const { results } = await env.DB.prepare(
@@ -68,7 +87,7 @@ async function gapLocales(env: Env, limit = 12): Promise<string[]> {
             MAX(CASE WHEN type = 'city' THEN real ELSE 0 END)         AS city,
             MAX(CASE WHEN type = 'subdivision' THEN real ELSE 0 END)  AS sub
        FROM coverage
-      WHERE locale NOT LIKE '%-%' AND locale != 'und'
+      WHERE locale NOT LIKE '%-%' AND locale != 'und' AND latin = 0
       GROUP BY locale
       HAVING sub > 2000 AND city < 40000
       ORDER BY city ASC

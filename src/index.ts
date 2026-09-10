@@ -26,7 +26,7 @@ import { OpenAPIGenerator } from "@orpc/openapi"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
 import { ZodToJsonSchemaConverter } from "@orpc/zod"
 import { contract } from "./api/contract.ts"
-import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
+import { SOURCES, isLatinLocale } from "../scripts/lib/sources.ts"
 /**
  * Literate readers per language, from CLDR, bundled rather than queried.
  *
@@ -247,16 +247,24 @@ const router = os.router({
       // 1.18M rows scanned, billed, per call — which is the exact mistake the
       // city search is shaped to avoid.
       const rows = await context.env.DB.prepare(
-        `SELECT locale, type, real FROM coverage WHERE locale NOT LIKE '%-%'`,
-      ).all<{ locale: string; type: string; real: number }>()
+        `SELECT locale, type, named, real, latin FROM coverage WHERE locale NOT LIKE '%-%'`,
+      ).all<{ locale: string; type: string; named: number; real: number; latin: number }>()
 
       const speakers = SPEAKERS as Record<string, { t: number; w: string[] }>
       const byLocale = new Map<string, Record<string, number>>()
       for (const r of rows.results) {
         const total = byType.get(r.type) ?? 0
         if (!total) continue
-        // The pivot is the English name and is not stored as an `en` row.
-        const real = r.locale === "en" ? total : r.real
+        /**
+         * Script-aware, like the matrix — and here it decides what a person sees.
+         *
+         * This is the endpoint a language picker calls, and `min` filters on the
+         * number it returns. Counting `real` for Latin-script languages reported
+         * Spanish cities at 14% when a Spanish reader gets a correct name for
+         * 51% of them, so a picker asking for `min=50&tier=city` dropped Spanish
+         * off its own list.
+         */
+        const real = r.locale === "en" ? total : r.latin ? r.named : r.real
         const cov = byLocale.get(r.locale) ?? {}
         cov[r.type] = Math.round((real / total) * 100)
         byLocale.set(r.locale, cov)
@@ -287,18 +295,33 @@ const router = os.router({
       const byType = new Map(totals.results.map((r) => [r.type, r.n]))
 
       /**
-       * One row per (locale, tier), counting only names a reader can actually use.
+       * Both numbers per (locale, tier), and the script decides which one counts.
        *
-       * `romanised` is excluded for every language here, including Latin-script
-       * ones. That understates Dutch — where the romanisation often *is* the Dutch
-       * name — and the alternative understates nothing and overstates Thai, which
-       * is the more expensive mistake for a ranking whose job is to say what to
-       * fix. `/coverage/{locale}` reports both numbers for anyone who needs the
-       * other reading.
+       * This read `real` alone — every romanised fallback excluded, for every
+       * language — and the note defending it said that understating Dutch was
+       * safer than overstating Thai. That was wrong, and it was wrong in a way
+       * that cost work rather than accuracy.
+       *
+       * Measured after the OSM pass: Spanish cities are `named` 51% and
+       * `translated` 14%. The 37-point difference is names identical to the
+       * English pivot — and for Spanish those are usually *correct*, because São
+       * Paulo is São Paulo in Spanish. So the ranking put Spanish second in the
+       * world with 59,838 cities "missing", roughly two thirds of which are not
+       * missing at all.
+       *
+       * That is not a cosmetic error. This ranking is what `gapLocales()` in
+       * refresh.ts reads to choose which languages get the weekly SPARQL budget,
+       * so it was aiming a scarce, rate-limited resource at Spanish, Portuguese
+       * and Indonesian — where the fallback already reads correctly — instead of
+       * at Hindi, Bengali and Arabic, where it does not.
+       *
+       * `/coverage/{locale}` has returned `latinScript` from the beginning,
+       * telling callers which of the two numbers to read. The fix is for this
+       * endpoint to take its own advice.
        */
       const rows = await context.env.DB.prepare(
-        `SELECT locale, type, real FROM coverage`,
-      ).all<{ locale: string; type: string; real: number }>()
+        `SELECT locale, type, named, real, latin FROM coverage`,
+      ).all<{ locale: string; type: string; named: number; real: number; latin: number }>()
 
       const speakers = SPEAKERS as Record<string, { t: number; w: string[] }>
       const gaps: { locale: string; tier: string; coverage: number; missing: number; readers: number; where: string[] }[] = []
@@ -308,8 +331,23 @@ const router = os.router({
         if (r.locale.includes("-")) continue
         const total = byType.get(r.type) ?? 0
         if (!total) continue
+        /**
+         * The number a reader of *this* language would actually experience.
+         *
+         * Latin-script: `named`, because a value equal to the pivot is usually
+         * the right word. Everything else: `real`, because a Latin string is
+         * unreadable however correct it is in English.
+         *
+         * A locale absent from `NON_LATIN_SCRIPT` is treated as Latin, which
+         * overstates it. That is the failure direction to be nervous about, and
+         * it is why the set is a maintained list rather than a guess from the
+         * language tag — a script this project has not thought about should be
+         * added to the set, and until then it shows up as suspiciously complete
+         * rather than silently absent.
+         */
+        const latin = r.latin === 1
         // The pivot is the English name and is not stored as an `en` row.
-        const real = r.locale === "en" ? total : r.real
+        const real = r.locale === "en" ? total : latin ? r.named : r.real
         const coverage = Math.round((real / total) * 100)
         if (coverage >= 70) continue
         const who = speakers[r.locale]
@@ -343,11 +381,14 @@ const router = os.router({
       const totals = await context.env.DB.prepare(`SELECT type, COUNT(*) n FROM place GROUP BY type`)
         .all<{ type: string; n: number }>()
       const cov = await context.env.DB.prepare(
-        `SELECT type, MAX(named) named, MAX(real) translated FROM coverage WHERE locale IN (?, ?) GROUP BY type`,
+        `SELECT type, MAX(named) named, MAX(real) translated, MIN(latin) latin FROM coverage WHERE locale IN (?, ?) GROUP BY type`,
       )
         .bind(locale, base)
-        .all<{ type: string; named: number; translated: number }>()
+        .all<{ type: string; named: number; translated: number; latin: number }>()
       const found = new Map(cov.results.map((r) => [r.type, r]))
+      // MIN across the tiers: they are all the same locale, so they all carry the
+      // same flag, and MIN picks it without caring which tier came back.
+      const stored = cov.results[0]?.latin
       const results = totals.results.map((t) => ({
         type: t.type,
         total: t.n,
@@ -356,7 +397,21 @@ const router = os.router({
       }))
       return {
         locale: input.locale,
-        latinScript: !NON_LATIN_SCRIPT.has(input.locale) && !NON_LATIN_SCRIPT.has(base),
+        /**
+         * From the database where we hold names for this locale, and only from
+         * `Intl` when we do not.
+         *
+         * The stored value is the one the merge acted on when it decided which
+         * names were translations and which were fallbacks, so reporting it keeps
+         * this endpoint consistent with the numbers beside it. Asking workerd's
+         * own ICU would be asking a different question in a different runtime and
+         * calling the answers the same thing.
+         *
+         * The fallback only fires for a locale with no coverage row — one we hold
+         * no names for at all, whose tiers are therefore all zero, so the worst a
+         * runtime disagreement can do here is label an empty result.
+         */
+        latinScript: stored === undefined ? isLatinLocale(input.locale) && isLatinLocale(base) : stored === 1,
         tiers: results,
       }
     }),

@@ -184,19 +184,136 @@ export const byId = (id: string): Source => {
 }
 
 /**
- * Languages written in a script where a Latin string is not a lesser translation
- * but an unreadable one.
+ * Which languages are written in a script where a Latin string is not a lesser
+ * translation but an unreadable one.
  *
  * Not a judgement about the language — about the script. A Dutch reader given
  * "Ourinhos" is reading Dutch. A Thai reader given "Ourinhos" is reading nothing,
  * and a Thai reader given "Changwat Bueng Kan" — which GeoNames really does tag
  * as `th` — is reading a transliteration somebody labelled a translation.
+ *
+ * ## This was a list of fifty and it was missing thirty-nine
+ *
+ * Hand-written, defensible, and wrong the moment the data grew past the languages
+ * I happened to think of. Measured against the loaded database: 39 locales with
+ * more than 150 names each — Egyptian Arabic with 12,681, Tatar with 8,177, Wu,
+ * Cantonese, Chechen, Bashkir, Odia — hold names that are 100% non-Latin and were
+ * classified as Latin-script because nobody had typed them here.
+ *
+ * That had two consequences, and the second is worse than the first:
+ *
+ *   `/api/matrix` counted their Latin fallbacks as real names, overstating them
+ *   `resolve()` in merge.ts never demoted a Latin value to `romanised` for them,
+ *   because the demotion is gated on this very set — so the honesty check that
+ *   this whole project is organised around was simply not running for 39
+ *   languages
+ *
+ * ## CLDR already knows, so ask it
+ *
+ * `Intl.Locale#maximize` resolves a language tag to its likely script from
+ * CLDR's own data, in every runtime this code runs in, with no list to maintain.
+ * Checked against 187 locales in the loaded database: it agrees with the observed
+ * script of their names 178 times.
+ *
+ * The nine it does not, plus the four it has no answer for, are below. Each is a
+ * real disagreement rather than a bug, and each earns its line.
  */
-export const NON_LATIN_SCRIPT = new Set([
-  "th","ja","zh","zh-CN","zh-TW","zh-HK","zh-Hant","ko","ru","uk","be","bg","sr","mk","el","hy","ka",
-  "hi","bn","pa","gu","ta","te","kn","ml","si","ne","mr","my","km","lo","am","ti","dz","bo",
-  "ar","fa","ur","ps","he","yi","dv","ug","kk","ky","mn","tg","sd","ckb","ku",
-])
+const SCRIPT_OVERRIDES: Record<string, "Latn" | "NonLatn"> = {
+  /**
+   * Written in Latin here, whatever CLDR's likely script says.
+   *
+   * The Min and Hakka varieties reach us romanised — Pe̍h-ōe-jī and Bàng-uâ-cê —
+   * so every name we hold for them is Latin even though CLDR's likely script is
+   * Han. Karakalpak and Crimean Tatar officially changed to Latin alphabets and
+   * CLDR still reports Cyrillic as likely. Ladino and Wolaytta are written both
+   * ways and our sources use Latin.
+   *
+   * All seven verified against the data: 96–100% of their names are Latin.
+   */
+  nan: "Latn", cdo: "Latn", hak: "Latn", kaa: "Latn", crh: "Latn", lad: "Latn", wal: "Latn",
+  /**
+   * Not written in Latin, and CLDR has no likely script to offer.
+   *
+   * `Intl.Locale#maximize` returns nothing for these four, and the fallback for
+   * "unknown" is Latin — which would overstate them exactly the way the old list
+   * did. Western Punjabi is Shahmukhi, Buryat and Meadow Mari are Cyrillic,
+   * Bihari is Devanagari. All four measured at 0% Latin in the loaded database.
+   */
+  pnb: "NonLatn", bxr: "NonLatn", mhr: "NonLatn", bh: "NonLatn",
+}
+
+/**
+ * The script CLDR considers likely for a language tag.
+ *
+ * `undefined` when CLDR has no opinion, which is a different thing from Latin
+ * and is why the caller decides what to do about it.
+ */
+export function scriptOf(locale: string): string | undefined {
+  try {
+    return new Intl.Locale(locale).maximize().script
+  } catch {
+    // Not a parseable language tag. `und` and the pseudo-locales land here.
+    return undefined
+  }
+}
+
+/**
+ * Would a reader of this locale be served by a Latin string?
+ *
+ * Unknown resolves to `true`, and that is the direction that overstates rather
+ * than the one that hides work — a locale wrongly called Latin looks better than
+ * it is, which somebody will notice, where one wrongly called non-Latin quietly
+ * consumes a refresh budget it does not need. The overrides above exist so that
+ * "unknown" stays a small set rather than a hiding place.
+ *
+ * **Runtime-dependent, and therefore not to be called from the Worker.** See
+ * `classifyScript` below.
+ */
+export function isLatinLocale(locale: string): boolean {
+  const override = SCRIPT_OVERRIDES[locale] ?? SCRIPT_OVERRIDES[locale.split("-")[0]]
+  if (override) return override === "Latn"
+  const script = scriptOf(locale)
+  return script === undefined || script === "Latn"
+}
+
+/**
+ * The same question, answered from the names themselves where there are enough.
+ *
+ * ## Why the data outranks CLDR here
+ *
+ * `Intl` disagrees with itself across runtimes. Measured over the 710 locales in
+ * this database, Bun's ICU and Node's ICU give different answers for 30 of them:
+ * Node knows Western Punjabi is Shahmukhi and Buryat is Cyrillic where Bun
+ * returns nothing, and Bun knows Urdu is Nastaliq where Node says plain Arabic.
+ * workerd is a third ICU and will be a third answer.
+ *
+ * That matters because three different parts of this system asked the question:
+ * the merge (Bun) decided whether to demote a Latin value to `romanised`, the
+ * tests (Node) asserted on the result, and the Worker (workerd) reported it as
+ * coverage. Three runtimes, one question, and no guarantee they agree — which is
+ * the same shape as the divergence between the deployed database and the local
+ * build that lost 3,025 Thai names.
+ *
+ * So it is resolved once, in the ETL, and written into the `coverage` table.
+ * Everything downstream reads a column.
+ *
+ * ## And why the names are better evidence than a lookup anyway
+ *
+ * A language's likely script is a fact about the language; what we hold is a
+ * fact about our sources. Where we have a few hundred names, they settle it
+ * directly and unanimously: Thai, Japanese, Chinese, Korean, Russian, Hindi,
+ * Arabic, Hebrew, Greek, Georgian, Armenian, Bengali and Tamil are each 0% Latin
+ * across tens of thousands of names. There is nothing for a lookup table to add.
+ *
+ * Below the threshold there is not enough to conclude anything, and CLDR is the
+ * better guess than a coin flip.
+ */
+export const SCRIPT_EVIDENCE_MINIMUM = 150
+
+export function classifyScript(locale: string, observed?: { n: number; latin: number }): boolean {
+  if (observed && observed.n >= SCRIPT_EVIDENCE_MINIMUM) return observed.latin / observed.n > 0.5
+  return isLatinLocale(locale)
+}
 
 /**
  * Is this string written in Latin letters?

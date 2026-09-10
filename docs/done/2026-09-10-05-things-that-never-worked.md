@@ -48,7 +48,7 @@ And two tests that could not fail at all:
 - **`tests/api/service.test.ts`** — 20 tests that make real requests, runnable
   against the dev server or the deployment. Both need to be true and they have
   disagreed: remote D1 refuses `BEGIN TRANSACTION` that local D1 accepts.
-- **[`example/`](../example/)** — a bare consumer project. `bun run install-picker
+- **[`example/`](../../example/)** — a bare consumer project. `bun run install-picker
   && bun run check` installs from the deployed registry URL and typechecks
   against a consumer's own tsconfig, `@/` alias and shadcn components. The test
   asserts `places-picker.tsx` exists afterwards, because `shadcn add` reports
