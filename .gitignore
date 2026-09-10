@@ -1,9 +1,9 @@
 node_modules/
 # Staged sources: someone else's data, up to 1.2GB, re-fetchable by `places stage`.
 .stage/
-# Build output is committed for the sample and ignored for the full world build;
-# see docs/ for which artefacts belong in git and why ODbL requires some of them.
-.build/*.ndjson
-!.build/sample/
+# Working output. The *published* database lives in data/ as gzipped NDJSON and
+# is committed on purpose: ODbL's share-alike is discharged by the derived rows
+# being available, not by the ETL that would produce them being available.
+.build/
 .wrangler/
 dist/

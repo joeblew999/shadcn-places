@@ -68,3 +68,24 @@ describe("licences", () => {
     for (const s of shareAlike) expect(read("LICENSE-DATA")).toContain(s.id.split("/")[0].split("-")[0])
   })
 })
+
+describe("the derived database is published, not only the ETL", () => {
+  /**
+   * The one obligation that is invisible from inside the repository.
+   *
+   * Share-alike is discharged by the derived rows being available. A repo holding
+   * only the code that would produce them looks identical from a distance and
+   * satisfies nothing — and the failure is silent, because everything builds and
+   * every other test passes. So the rows are checked for directly.
+   */
+  for (const tier of ["countries", "subdivisions", "cities"]) {
+    it(`ships ${tier}`, () => {
+      const path = resolve(ROOT, `data/${tier}.ndjson.gz`)
+      expect(existsSync(path), `data/${tier}.ndjson.gz is missing — ODbL is not satisfied by the ETL alone`).toBe(true)
+    })
+  }
+
+  it("says which licence the data is under, beside the data", () => {
+    expect(read("data/README.md")).toContain("ODbL")
+  })
+})
