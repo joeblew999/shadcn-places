@@ -2,7 +2,7 @@
   "name": "shadcn-places",
   "version": "0.1.0",
   "type": "module",
-  "description": "Countries, states and cities in every language the open data has \u2014 API, data and a cascading shadcn picker.",
+  "description": "Countries, states and cities in every language the open data has — API, data and a cascading shadcn picker.",
   "license": "MIT",
   "scripts": {
     "places": "bun scripts/places.ts",
@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260908.1",
+    "@orpc/cloudflare": "^2.0.0-beta.35",
     "@orpc/contract": "^1.15.0",
     "@orpc/openapi": "^1.15.0",
     "@orpc/server": "^1.15.0",

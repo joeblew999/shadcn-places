@@ -14,8 +14,10 @@
  * be, that is why.
  */
 
-import { implement } from "@orpc/server"
+import { implement, onError } from "@orpc/server"
 import { RPCHandler } from "@orpc/server/fetch"
+import { CORSPlugin } from "@orpc/server/plugins"
+import { experimental_CloudflareTracer as CloudflareTracer } from "@orpc/cloudflare"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
 import { OpenAPIGenerator } from "@orpc/openapi"
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4"
@@ -47,7 +49,13 @@ interface Env {
   ARCHIVE: R2Bucket
 }
 
-const os = implement(contract).$context<{ env: Env }>()
+/**
+ * `ctx` as well as `env`, so a handler can reach `waitUntil`.
+ *
+ * Nothing uses it yet. It is here because adding it later means touching every
+ * handler signature, and the adapter hands it over for free.
+ */
+const os = implement(contract).$context<{ env: Env; ctx: ExecutionContext }>()
 
 /**
  * Resolve one name per place for the requested locale, in one query.
@@ -358,8 +366,49 @@ const router = os.router({
  */
 const openapiSpec = new OpenAPIGenerator({ converters: [new ZodToJsonSchemaConverter()] })
 
-const rpc = new RPCHandler(router)
-const openapi = new OpenAPIHandler(router)
+/**
+ * Shared handler options: CORS by plugin, and errors that are actually logged.
+ *
+ * The CORS headers were fifteen lines of hand-rolled header copying, added after
+ * the demo could not call its own service from localhost. oRPC ships a plugin
+ * that does it as part of the request rather than as a wrapper around the
+ * response — which also means a preflight is answered by the handler that knows
+ * the routes rather than by a blanket `if (method === "OPTIONS")`.
+ *
+ * `onError` is the bigger gap: this service had no error visibility at all. Every
+ * failure so far was found by a person watching a page — a 500 on every
+ * subdivision request, a 431 from Wikidata, a spec generator throwing inside a
+ * route. All of them were invisible in the logs because nothing was writing to
+ * them.
+ */
+/**
+ * Spans per procedure, at module scope so it is registered once per isolate.
+ *
+ * `onError` says *that* something failed. This says where the time went — which
+ * is the question nobody here has been able to answer: is a slow city search the
+ * SPARQL, the D1 read, or the JSON? The matrix endpoint took 7.3 seconds for a
+ * week and was only found by a test timing out.
+ *
+ * Marked experimental by oRPC and installed from the beta tag. Worth it: the
+ * alternative is an OpenTelemetry SDK in a Worker, and the failure mode if this
+ * package moves is losing traces rather than losing the service.
+ *
+ * `wrangler dev` shows these without deploying — press `e`, or open
+ * /cdn-cgi/local/explorer.
+ */
+new CloudflareTracer().enable()
+
+const handlerOptions = {
+  plugins: [new CORSPlugin()],
+  interceptors: [
+    onError((error) => {
+      console.error("orpc", error)
+    }),
+  ],
+}
+
+const rpc = new RPCHandler(router, handlerOptions)
+const openapi = new OpenAPIHandler(router, handlerOptions)
 
 /**
  * Read-only, public, and therefore callable from a browser.
@@ -384,7 +433,7 @@ const cors = (res: Response): Response => {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
 
     // Preflight. Answered before anything else so a POST from a browser does not
@@ -393,11 +442,11 @@ export default {
 
     // The RPC transport, which is what the typed client speaks — over a service
     // binding or over the public internet, identically.
-    const viaRpc = await rpc.handle(request, { prefix: "/rpc", context: { env } })
+    const viaRpc = await rpc.handle(request, { prefix: "/rpc", context: { env, ctx } })
     if (viaRpc.matched) return cors(viaRpc.response)
 
     // The same router as plain HTTP, for callers that are not TypeScript.
-    const viaHttp = await openapi.handle(request, { prefix: "/api", context: { env } })
+    const viaHttp = await openapi.handle(request, { prefix: "/api", context: { env, ctx } })
     if (viaHttp.matched) return cors(viaHttp.response)
 
     /**

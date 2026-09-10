@@ -3,7 +3,19 @@
 name = "shadcn-places"
 main = "src/index.ts"
 compatibility_date = "2026-09-10"
-compatibility_flags = ["nodejs_compat"]
+# `enable_request_signal` makes `request.signal` fire when the client goes away.
+# The picker debounces and then aborts in-flight searches as somebody keeps
+# typing; without this the Worker carries on running a D1 query nobody is waiting
+# for and D1 bills the rows it scans. Every abandoned keystroke was being paid for.
+#
+# `unhandled_rejection_after_microtask_checkpoint` makes an unhandled rejection
+# surface as an error rather than being swallowed — this service has already had
+# two failures that reported success, and that is enough.
+compatibility_flags = [
+  "nodejs_compat",
+  "enable_request_signal",
+  "unhandled_rejection_after_microtask_checkpoint",
+]
 
 # Everything served as a file lives in public/ and nowhere else. It held the demo
 # and the registry item as copies of demo/ and registry/ for a while, which meant
@@ -45,6 +57,16 @@ binding = "ARCHIVE"
 bucket_name = "shadcn-places-archive"
 
 [observability]
+enabled = true
+
+# Per-procedure spans, through the Workers custom-spans API rather than an
+# OpenTelemetry SDK.
+#
+# This service has had no observability at all. Every failure so far was found by
+# a person watching a page: a 500 on every subdivision request, a 431 from
+# Wikidata, a spec generator throwing inside a route. None of them appeared
+# anywhere because nothing was recording.
+[observability.traces]
 enabled = true
 
 # Cities are 152,970 rows and the picker queries on every keystroke, so the
