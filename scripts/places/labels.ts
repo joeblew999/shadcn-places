@@ -55,14 +55,18 @@ interface LabelRow {
 }
 
 async function ask(query: string, attempt = 1): Promise<Record<string, { value: string }>[] | null> {
-  const url = new URL(ENDPOINT)
-  url.searchParams.set("query", query)
   try {
-    const res = await fetch(url, {
+    // POST, not a query string. The Workflow doing the same thing with a batch of
+    // 500 was answered 431 — Request Header Fields Too Large — and this works at
+    // 250 purely by being under the ceiling. One size bump from the same failure.
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
       headers: {
         accept: "application/sparql-results+json",
+        "content-type": "application/x-www-form-urlencoded",
         "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places) label sync",
       },
+      body: new URLSearchParams({ query }),
       signal: AbortSignal.timeout(120_000),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)

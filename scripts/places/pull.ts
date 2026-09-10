@@ -25,8 +25,21 @@ import { join } from "node:path"
 const OUT = process.env.PLACES_OUT ?? ".build"
 const BUCKET = process.env.PLACES_BUCKET ?? "shadcn-places-archive"
 
+/**
+ * `--remote`, always. Without it wrangler reads local simulated storage.
+ *
+ * This cost an hour. The Workflow reported its R2 writes as successful, the CLI
+ * said "The specified key does not exist", and both were telling the truth about
+ * different buckets: `wrangler r2 object get` defaults to the local dev
+ * simulation, which was empty, while the deployed Worker had been writing to the
+ * real one all along.
+ *
+ * Settled by probing the binding from inside a request — the only place that can
+ * see what the Workflow sees. Every read here is remote by construction so the
+ * question cannot come back.
+ */
 function r2(args: string[]): string {
-  const res = spawnSync("bun", ["x", "wrangler", ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  const res = spawnSync("bun", ["x", "wrangler", ...args, "--remote"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
   if (res.status !== 0) throw new Error(res.stderr?.slice(0, 300) ?? "wrangler failed")
   return res.stdout
 }
@@ -35,15 +48,29 @@ export async function pull(argv: string[]): Promise<void> {
   const dir = join(OUT, "labels")
   mkdirSync(dir, { recursive: true })
 
-  // `r2 object get` needs an exact key, so the list comes first. Wrangler has no
-  // JSON output for this, hence the parse — brittle, and the alternative is an
-  // API token this command should not need.
-  const listing = r2(["r2", "object", "list", `${BUCKET}`, "--prefix", "labels/"])
-  const keys = [...listing.matchAll(/labels\/[A-Za-z0-9_.\-]+\.ndjson/g)].map((m) => m[0])
-  const unique = [...new Set(keys)]
+  /**
+   * The index, because `wrangler r2 object` cannot list a bucket.
+   *
+   * It has get, put and delete and nothing else — so there is no way from the CLI
+   * to ask what a refresh produced. The first version of this parsed the output of
+   * `r2 object list`, a command that does not exist; it was committed and its
+   * tests passed because they only checked the file was present.
+   *
+   * The Workflow knows what it wrote, so it publishes a manifest at a fixed key
+   * and this asks for that by name. One known key is all the CLI can do, and it
+   * turns out to be enough.
+   */
+  let index: { keys: string[] }
+  try {
+    index = JSON.parse(r2(["r2", "object", "get", `${BUCKET}/labels-index.json`, "--pipe"]))
+  } catch {
+    console.log("  no labels-index.json in R2 — the refresh has not completed a run yet")
+    return
+  }
+  const unique = [...new Set(index.keys ?? [])]
 
   if (!unique.length) {
-    console.log("  nothing in R2 to pull — the refresh has not run, or found nothing")
+    console.log("  the refresh has run and found nothing to add")
     return
   }
 

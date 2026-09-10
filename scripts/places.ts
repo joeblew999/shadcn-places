@@ -22,6 +22,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "extract [countries|subdivisions|cities]   stream staged sources into .build/*.ndjson — no network",
     run: async (argv) => (await import("./places/extract.ts")).extract(argv),
   },
+  sync: {
+    help: "sync [--full] [--force] [--dry-run] [--local-only]   the whole cycle in the right order",
+    run: async (argv) => (await import("./places/sync.ts")).sync(argv),
+  },
   pull: {
     help: "pull [--refresh]              bring the scheduled refresh's findings back from R2",
     run: async (argv) => (await import("./places/pull.ts")).pull(argv),
@@ -70,8 +74,11 @@ if (!command || !OPS[command]) {
   if (command) console.error(`unknown command: ${command}\n`)
   console.log("shadcn-places — build the place data\n")
   for (const [name, op] of Object.entries(OPS)) console.log(`  ${op.help}`)
-  console.log("\nThe order is stage → extract → merge. Only stage uses the network,")
-  console.log("which is why adding a language is minutes rather than 1.2GB.")
+  console.log("\n  Most of the time you want `sync`: it runs pull → merge → diff → load →")
+  console.log("  apply → publish in that order, and stops if the build loses places.")
+  console.log("\n  The individual steps are there for when something has gone wrong.")
+  console.log("  Only `stage` and `osm` use the network for bulk data, which is why")
+  console.log("  adding a language costs minutes rather than 1.2GB.")
   process.exit(command ? 1 : 0)
 }
 

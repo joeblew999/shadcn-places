@@ -79,14 +79,27 @@ async function gapLocales(env: Env, limit = 12): Promise<string[]> {
   return results.map((r) => r.locale)
 }
 
+/**
+ * POSTed, because the query carries hundreds of ids and a URL cannot.
+ *
+ * The first version put it in the query string and Wikidata answered **431,
+ * Request Header Fields Too Large**, four times, before the step gave up. The
+ * local CLI does the same thing and works only because its batch is 250 rather
+ * than 500 — it was one size bump away from the same failure and nobody would
+ * have connected the two.
+ *
+ * SPARQL over POST is the documented form for anything non-trivial, and it has no
+ * length ceiling worth thinking about.
+ */
 async function sparql(query: string): Promise<Record<string, { value: string }>[] | null> {
-  const url = new URL(ENDPOINT)
-  url.searchParams.set("query", query)
-  const res = await fetch(url, {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
     headers: {
       accept: "application/sparql-results+json",
+      "content-type": "application/x-www-form-urlencoded",
       "user-agent": "shadcn-places/0.1 (https://github.com/joeblew999/shadcn-places) scheduled refresh",
     },
+    body: new URLSearchParams({ query }),
     signal: AbortSignal.timeout(90_000),
   })
   // Thrown, not swallowed: the step retries, and a rate-limited request must never
@@ -253,6 +266,28 @@ export class RefreshNames extends WorkflowEntrypoint<Env, Params> {
     const report = { at: new Date().toISOString(), locales, checked: targets.length, added }
     await step.do("record what happened", async () => {
       await this.env.ARCHIVE.put(`refresh/${report.at}.json`, JSON.stringify(report))
+
+      /**
+       * An index of the label files, because nothing can list the bucket.
+       *
+       * `wrangler r2 object` has get, put and delete and no list — so `places
+       * pull` cannot discover what a run produced. It was written against a
+       * command that does not exist and committed with tests that only checked
+       * the file was there.
+       *
+       * The Workflow knows what it wrote, so it says so at a key the puller can
+       * ask for by name. Rebuilt from the bucket's own listing — which the
+       * *binding* has, even though the CLI does not — so a run that crashed
+       * before this point still leaves its files discoverable by the next one.
+       */
+      const keys: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = await this.env.ARCHIVE.list({ prefix: "labels/", cursor, limit: 1000 })
+        for (const o of page.objects) if (o.key.endsWith(".ndjson")) keys.push(o.key)
+        cursor = page.truncated ? page.cursor : undefined
+      } while (cursor)
+      await this.env.ARCHIVE.put("labels-index.json", JSON.stringify({ at: report.at, keys }))
     })
 
     return report
