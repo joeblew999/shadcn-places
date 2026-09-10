@@ -14,7 +14,7 @@
 export type Licence = "Unicode" | "CC BY 4.0" | "ODbL-1.0" | "CC0"
 
 /** How a name was arrived at. Precedence is defined by KIND_RANK below. */
-export type Kind = "translated" | "native" | "romanised" | "transliterated"
+export type Kind = "override" | "translated" | "native" | "romanised" | "transliterated"
 
 export interface Source {
   id: string
@@ -73,6 +73,12 @@ export const SOURCES: readonly Source[] = [
       "but it is why `kind: translated` here means 'a source called this a translation' and never 'a human has read it'. Four subdivision ids also appear twice (French overseas territories); the merge keeps the first and counts the rest.",
   },
   {
+    id: "overrides",
+    licence: "CC0",
+    weight: "nothing — it is in this repository",
+    note: "Corrections we make ourselves, in overrides.json, committed. The only source that is not re-derivable and therefore the only one a rebuild must preserve. Ranks above everything: upstream improving should flow in automatically, and upstream being wrong is what this is for.",
+  },
+  {
     id: "wikidata",
     licence: "CC0",
     weight: "nothing to download, minutes of SPARQL",
@@ -88,8 +94,22 @@ export const SOURCES: readonly Source[] = [
  * appears upstream — rather than someone having to notice.
  */
 export const KIND_RANK: Record<Kind, number> = {
+  /**
+   * A human said so, and a rebuild must not argue.
+   *
+   * Everything else here is derived from a source and is therefore disposable:
+   * re-run the ETL and it comes back the same or better. An override is the one
+   * kind that cannot be re-derived, because the knowledge that produced it —
+   * that Brazil's state of Acre is not the unit of area — exists nowhere upstream.
+   *
+   * It outranks `translated` deliberately. Upstream improving is the normal case
+   * and should flow in automatically; upstream being *wrong* is the case an
+   * override exists for, and deferring to it would defeat the purpose.
+   */
+  override: 4,
   translated: 3,
   native: 2,
+  /** Generated, so it must lose to any real name that later appears upstream. */
   transliterated: 1,
   romanised: 0,
 }

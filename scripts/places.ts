@@ -34,6 +34,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "labels [--country=BR] [--limit=N] [--locales=a,b]   city names from Wikidata, joined on P1566",
     run: async (argv) => (await import("./places/labels.ts")).labels(argv),
   },
+  diff: {
+    help: "diff [tier...]                what a rebuild changed against the published data",
+    run: async (argv) => (await import("./places/diff.ts")).diff(argv),
+  },
   load: {
     help: "load                          write .build/load.sql for `wrangler d1 execute --file`",
     run: async (argv) => (await import("./places/load.ts")).load(argv),

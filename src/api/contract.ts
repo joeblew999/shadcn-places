@@ -26,7 +26,16 @@ import { z } from "zod"
 /** BCP-47, loosely. Rejecting exotic-but-valid tags would be worse than passing one through. */
 const Locale = z.string().min(2).max(35).regex(/^[a-zA-Z0-9-]+$/)
 
-const Kind = z.enum(["translated", "native", "romanised", "transliterated"])
+/**
+ * Kept in step with `Kind` in scripts/lib/sources.ts, and it is the contract that
+ * enforces that rather than a comment.
+ *
+ * `override` was added to the ETL and not here, so the Worker began returning a
+ * value its own output schema rejected and every subdivision request answered
+ * 500. Annoying, and exactly right: a service whose responses have quietly
+ * drifted from its published contract is worse than one that stops.
+ */
+const Kind = z.enum(["override", "translated", "native", "romanised", "transliterated"])
 
 /**
  * What a place looks like on the wire.

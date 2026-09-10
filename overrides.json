@@ -1,0 +1,25 @@
+{
+  "$comment": [
+    "Corrections that outrank every source, and the only data here a rebuild cannot re-derive.",
+    "",
+    "Everything else in this project comes from GeoNames, dr5hn, Wikidata or CLDR and is",
+    "disposable: re-run the ETL and it returns the same or better. These do not. The knowledge",
+    "that Brazil's state of Acre is not the unit of area exists nowhere upstream, so if it is",
+    "not written down here it is lost on the next run.",
+    "",
+    "Add one when a source is wrong, not when it is merely absent. A missing name is reported",
+    "honestly as `romanised` and may arrive upstream next month; a wrong name is served to a",
+    "reader as though it were right, and will not fix itself.",
+    "",
+    "Every entry needs a `why`. An override with no reason is indistinguishable from a typo",
+    "six months later, and the person who has to decide whether to keep it will not be you."
+  ],
+  "names": {
+    "subdivision:BR-AC": {
+      "why": "dr5hn machine-translated the state name as the unit of area. エーカー and فدان both mean 'acre' the measurement. The place is a transliteration of the Portuguese.",
+      "ja": "アクレ",
+      "ar": "أكري",
+      "ru": "Акри"
+    }
+  }
+}

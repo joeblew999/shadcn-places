@@ -19,7 +19,8 @@
  *     string while every completeness check passed.
  */
 
-import { join } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { join, resolve as resolvePath } from "node:path"
 import { records, ndjsonWriter } from "../lib/ndjson.ts"
 import { KIND_RANK, NON_LATIN_SCRIPT, isLatinScript, type Kind } from "../lib/sources.ts"
 import type { Place, Name } from "./extract.ts"
@@ -49,6 +50,8 @@ export interface MergedPlace extends Omit<Place, "names"> {
  * distinction is what `kind` exists for.
  */
 function actualKind(name: Name, pivot: string): Kind {
+  // An override is not evidence to be re-examined; a human already decided.
+  if (name.kind === "override") return "override"
   if (name.kind === "native") return "native"
   // Identical to the pivot: a romanisation whatever the source called it.
   if (name.value === pivot) return "romanised"
@@ -68,8 +71,37 @@ function actualKind(name: Name, pivot: string): Kind {
   return name.kind
 }
 
-export function resolve(place: Place): Resolved[] {
+/**
+ * Corrections from `overrides.json`, keyed by place id.
+ *
+ * Read once and applied in the merge rather than after it, so an override
+ * competes through the same precedence rule as everything else instead of being
+ * stamped on top afterwards. That matters for one case: a `why` explaining that
+ * upstream is wrong stops being true the day upstream fixes it, and going
+ * through the ranking means the override still wins — visibly, as
+ * `kind: "override"` — rather than silently.
+ */
+export type Overrides = Record<string, Record<string, string>>
+
+export function loadOverrides(root = resolvePath(import.meta.dirname, "../..")): Overrides {
+  const path = join(root, "overrides.json")
+  if (!existsSync(path)) return {}
+  const file = JSON.parse(readFileSync(path, "utf8")) as { names?: Record<string, Record<string, string>> }
+  const out: Overrides = {}
+  for (const [id, entry] of Object.entries(file.names ?? {})) {
+    const names: Record<string, string> = {}
+    // `why` is documentation and `$comment` is for the reader; neither is a locale.
+    for (const [k, v] of Object.entries(entry)) if (k !== "why" && !k.startsWith("$")) names[k] = v
+    if (Object.keys(names).length) out[id] = names
+  }
+  return out
+}
+
+export function resolve(place: Place, overrides: Overrides = {}): Resolved[] {
   const byLocale = new Map<string, Name[]>()
+  for (const [locale, value] of Object.entries(overrides[place.id] ?? {})) {
+    byLocale.set(locale, [{ locale, value, source: "overrides", kind: "override" }])
+  }
   for (const n of place.names) {
     if (!n.value?.trim()) continue
     const list = byLocale.get(n.locale) ?? []
@@ -87,12 +119,13 @@ export function resolve(place: Place): Resolved[] {
 }
 
 export async function merge(argv: string[]): Promise<void> {
+  const overrides = loadOverrides()
   const tiers = argv.filter((a) => !a.startsWith("--"))
   const wanted = tiers.length ? tiers : ["countries", "subdivisions", "cities"]
   for (const tier of wanted) {
     const src = join(OUT, `${tier}.ndjson`)
     const out = ndjsonWriter(join(OUT, `${tier}.merged.ndjson`))
-    let places = 0, kept = 0, demoted = 0, duplicates = 0
+    let places = 0, kept = 0, demoted = 0, duplicates = 0, overridden = 0
     /**
      * An id may arrive twice, and that is upstream's business rather than a bug.
      *
@@ -111,7 +144,8 @@ export async function merge(argv: string[]): Promise<void> {
     for await (const place of records<Place>(src)) {
       if (seen.has(place.id)) { duplicates++; continue }
       seen.add(place.id)
-      const names = resolve(place)
+      const names = resolve(place, overrides)
+      if (overrides[place.id]) overridden++
       places++
       kept += names.length
       demoted += names.filter((n) => n.kind === "romanised").length
@@ -122,7 +156,8 @@ export async function merge(argv: string[]): Promise<void> {
     console.log(
       `  ${tier.padEnd(13)} ${String(places).padStart(7)} places  ${String(kept).padStart(8)} names  ` +
         `${String(demoted).padStart(7)} romanised (${pct}%)` +
-        (duplicates ? `  ${duplicates} duplicate id(s) dropped` : ""),
+        (duplicates ? `  ${duplicates} duplicate id(s) dropped` : "") +
+        (overridden ? `  ${overridden} overridden` : ""),
     )
   }
   console.log("\n`romanised` is not a failure — for Latin-script languages it is the right answer.")

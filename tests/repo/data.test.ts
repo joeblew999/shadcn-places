@@ -136,3 +136,79 @@ describe.skipIf(!have("countries"))("the published database matches what was bui
     })
   }
 })
+
+describe("overrides", () => {
+  /**
+   * The one source a rebuild cannot re-derive, and therefore the one that rots.
+   *
+   * An override points at a place id from a dataset that changes underneath it.
+   * When upstream renames an id, the override stops applying — and it fails
+   * silently, because a correction that matches nothing looks exactly like a
+   * correction that was never needed. The wrong name comes back and the file
+   * still looks like it is handling it.
+   *
+   * These run whenever the file exists, not only when a build does, because a
+   * malformed override should fail on a fresh clone rather than at merge time.
+   */
+  const file = resolve(ROOT, "overrides.json")
+  const raw = existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf8")) as { names?: Record<string, Record<string, string>> })
+    : { names: {} }
+  const entries = Object.entries(raw.names ?? {})
+
+  it("gives every override a reason", () => {
+    // Without one, whoever inherits this cannot tell a correction from a typo,
+    // and cannot ever decide it is safe to remove.
+    for (const [id, entry] of entries) {
+      expect(entry.why?.trim(), `${id} has no "why" — nobody will know whether to keep it`).toBeTruthy()
+    }
+  })
+
+  it("uses locale tags, not stray keys", () => {
+    for (const [id, entry] of entries) {
+      for (const key of Object.keys(entry)) {
+        if (key === "why" || key.startsWith("$")) continue
+        expect(key, `${id}: "${key}" is not a locale tag`).toMatch(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/)
+      }
+    }
+  })
+
+  it.skipIf(!have("subdivisions") || !have("countries") || !have("cities"))(
+    "corrects places that still exist",
+    async () => {
+      const ids = new Set<string>()
+      for (const tier of ["countries", "subdivisions", "cities"] as const) {
+        for (const p of await load(tier)) ids.add(p.id)
+      }
+      const dangling = entries.map(([id]) => id).filter((id) => !ids.has(id))
+      expect(
+        dangling,
+        "these overrides match no place — upstream probably renamed the id, and the correction is silently doing nothing",
+      ).toEqual([])
+    },
+  )
+
+  it.skipIf(!have("subdivisions"))("actually changes something", async () => {
+    // An override identical to what upstream already says is a maintenance cost
+    // with no benefit, and usually means upstream fixed it and nobody noticed.
+    const byId = new Map((await load("subdivisions")).map((p) => [p.id, p]))
+    const pointless: string[] = []
+    for (const [id, entry] of entries) {
+      const place = byId.get(id)
+      if (!place) continue
+      for (const [locale, value] of Object.entries(entry)) {
+        if (locale === "why" || locale.startsWith("$")) continue
+        const applied = place.names.find((n) => n.locale === locale)
+        // The override won, so `applied.value` is the override. What we want to
+        // know is whether any *other* source now agrees with it.
+        if (applied?.kind === "override" && applied.alternatives === 0) {
+          // Nothing else offered a name for this locale — the override is filling
+          // a gap rather than correcting an error. Allowed, but worth knowing.
+          continue
+        }
+        if (applied && applied.value !== value) pointless.push(`${id} ${locale}`)
+      }
+    }
+    expect(pointless, "an override did not take effect").toEqual([])
+  })
+})

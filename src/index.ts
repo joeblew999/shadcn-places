@@ -59,7 +59,7 @@ const toPlace = (r: Row) => ({
   id: r.id,
   type: r.type,
   name: r.value ?? r.pivot,
-  kind: (r.kind ?? "romanised") as "translated" | "native" | "romanised" | "transliterated",
+  kind: (r.kind ?? "romanised") as "override" | "translated" | "native" | "romanised" | "transliterated",
   source: r.source ?? "geonames",
   parentId: r.parent_id,
   countryCode: r.country_code,

@@ -79,7 +79,7 @@ export const name = sqliteTable(
     value: text("value").notNull(),
     /** `cldr` | `geonames` | `dr5hn` | `wikidata`. What an attribution line is built from. */
     source: text("source").notNull(),
-    kind: text("kind", { enum: ["translated", "native", "romanised", "transliterated"] }).notNull(),
+    kind: text("kind", { enum: ["override", "translated", "native", "romanised", "transliterated"] }).notNull(),
   },
   (t) => [
     // One name per (place, locale): the merge already resolved the competition, so
