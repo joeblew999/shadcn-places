@@ -34,6 +34,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
       if (manifest) console.log(`  baseline ${manifest.at}${manifest.sha ? ` (${manifest.sha})` : ""}, ${manifest.files.length} files verified`)
     },
   },
+  "labels-push": {
+    help: "labels-push [--dry-run]       push .build/labels to R2, so they exist off this machine",
+    run: async (argv) => (await import("./places/labels-push.ts")).labelsPush(argv),
+  },
   publish: {
     help: "publish [--dry-run]          push the database to R2 and write data/manifest.json",
     run: async (argv) => (await import("./places/publish.ts")).publish(argv),

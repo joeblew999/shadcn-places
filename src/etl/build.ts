@@ -123,6 +123,8 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
 
     let places = 0
     let names = 0
+    let cityPlaces = 0
+    let cityNames = 0
     for (let part = 0; part < partitions; part++) {
       const done = await step.do(
         `merge partition ${part}`,
@@ -147,6 +149,44 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
             }
           }
 
+          /**
+           * The label work: Wikidata's passes and the OpenStreetMap city matching.
+           *
+           * This is where most of the names are. The build without it came out
+           * 622,999 short of production — GeoNames' own alternate names are the
+           * inventory's floor, not its coverage, and everything that makes a Thai
+           * reader see Thai comes from these files.
+           *
+           * Not partitioned at write time like the staged names, because they are
+           * written by a different process — the refresh Workflow, and whatever
+           * `places labels` last pushed — which has no reason to know how the
+           * merge slices. So each partition reads them all and keeps its share.
+           * 145MB read ten times is the cost of that independence, and it is
+           * bounded per step, which is what the memory limit actually cares about.
+           */
+          const labels = await this.env.ARCHIVE.list({ prefix: "labels/", limit: 1000 })
+          for (const object of labels.objects) {
+            for await (const line of linesOf(this.env.ARCHIVE, object.key)) {
+              const row = JSON.parse(line) as {
+                placeId?: string
+                geonameId?: string
+                locale: string
+                value: string
+                source?: string
+              }
+              // `placeId` is the current field; `geonameId` is what the first
+              // version of the city pass wrote, and a run from before that change
+              // should still fold in rather than being silently ignored.
+              const id = row.placeId ?? (row.geonameId ? `city:${row.geonameId}` : "")
+              if (!id || partitionOf(id) !== part) continue
+              const list = wanted.get(id) ?? []
+              // The source travels with the row: OSM and Wikidata both land here
+              // and an attribution line has to tell them apart.
+              list.push({ locale: row.locale, value: row.value, source: row.source ?? "wikidata", kind: "translated" })
+              wanted.set(id, list)
+            }
+          }
+
           const out: string[] = []
           let merged = 0
           for await (const line of linesOf(this.env.ARCHIVE, key.staged)) {
@@ -164,6 +204,8 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
       )
       places += done.places
       names += done.names
+      cityPlaces += done.places
+      cityNames += done.names
     }
 
     /**
@@ -176,7 +218,7 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
      */
     const smallTiers: Record<string, { places: number; names: number }> = {}
     for (const tier of ["countries", "subdivisions"]) {
-      smallTiers[tier] = await step.do(`merge the ${tier}`, async () => {
+      smallTiers[tier] = await step.do(`merge the ${tier}`, { timeout: "10 minutes" }, async () => {
         const extra = new Map<string, Name[]>()
         if (tier === "subdivisions") {
           const listing = await this.env.ARCHIVE.list({ prefix: "stage/subdivision-names-" })
@@ -187,6 +229,41 @@ export class BuildDatabase extends WorkflowEntrypoint<Env, Params> {
               list.push(...row.names)
               extra.set(row.placeId, list)
             }
+          }
+        }
+
+        /**
+         * These tiers need the label work too, and the first version forgot them.
+         *
+         * The label reading lived inside the city partition loop only, so
+         * countries came out with 14,649 names against production's 46,269 and
+         * subdivisions with 212,486 against 236,558 — a 55,692 shortfall that was
+         * entirely here while every city number matched.
+         *
+         * Countries feel like the tier that needs no help, because CLDR covers
+         * them. It covers the hundred-odd locales ICU ships; the Wikidata pass
+         * that took Wu and Cantonese from zero to 98% is in these files.
+         *
+         * Filtered by id prefix rather than partition: these tiers are not
+         * partitioned, so the whole label set is scanned and everything belonging
+         * to another tier is dropped as it goes past.
+         */
+        const prefix = tier === "countries" ? "country:" : "subdivision:"
+        const labels = await this.env.ARCHIVE.list({ prefix: "labels/", limit: 1000 })
+        for (const object of labels.objects) {
+          for await (const line of linesOf(this.env.ARCHIVE, object.key)) {
+            const row = JSON.parse(line) as {
+              placeId?: string
+              geonameId?: string
+              locale: string
+              value: string
+              source?: string
+            }
+            const id = row.placeId ?? (row.geonameId ? `city:${row.geonameId}` : "")
+            if (!id.startsWith(prefix)) continue
+            const list = extra.get(id) ?? []
+            list.push({ locale: row.locale, value: row.value, source: row.source ?? "wikidata", kind: "translated" })
+            extra.set(id, list)
           }
         }
         const out: string[] = []
@@ -405,10 +482,22 @@ SELECT n.locale, p.type, COUNT(*),
      * refuses, and `force` is how somebody says they meant it.
      */
     const safety = await step.do("check this build does not lose anything", async () => {
-      const counts = await this.env.DB.prepare(
-        `SELECT (SELECT COUNT(*) FROM place) places, (SELECT COUNT(*) FROM name) names`,
-      ).first<{ places: number; names: number }>()
-      return { places: counts?.places ?? 0, names: counts?.names ?? 0 }
+      /**
+       * Per tier, because a total hides a regression inside it.
+       *
+       * This counted totals and would have passed a build that was 1,041 names
+       * ahead overall and 449 country names behind — richer cities paying for
+       * poorer countries, with every number the gate checked going up. That is
+       * the same blind spot as counting places and not names, one level down.
+       */
+      const rows = await this.env.DB.prepare(
+        `SELECT p.type,
+                COUNT(DISTINCT p.id) places,
+                COUNT(n.place_id) names
+           FROM place p LEFT JOIN name n ON n.place_id = p.id
+          GROUP BY p.type`,
+      ).all<{ type: string; places: number; names: number }>()
+      return Object.fromEntries(rows.results.map((r) => [r.type, { places: r.places, names: r.names }]))
     })
 
     /**
@@ -425,19 +514,40 @@ SELECT n.locale, p.type, COUNT(*),
      * A gate that measures one dimension of a replacement is a gate that
      * guarantees nothing about the other one.
      */
-    const losses: string[] = []
-    if (places < safety.places) {
-      losses.push(`${(safety.places - places).toLocaleString()} places (${safety.places.toLocaleString()} → ${places.toLocaleString()})`)
+    /**
+     * What this build holds, per tier, to compare against what the database does.
+     *
+     * The city partitions are summed because they are one tier split ten ways;
+     * countries and subdivisions merged whole and report themselves.
+     */
+    const built: Record<string, { places: number; names: number }> = {
+      country: smallTiers.countries,
+      subdivision: smallTiers.subdivisions,
+      city: { places: cityPlaces, names: cityNames },
     }
-    if (names < safety.names) {
-      losses.push(`${(safety.names - names).toLocaleString()} names (${safety.names.toLocaleString()} → ${names.toLocaleString()})`)
+
+    const losses: string[] = []
+    for (const [tier, before] of Object.entries(safety)) {
+      const after = built[tier]
+      if (!after) {
+        losses.push(`every ${tier} — this build has none and the database has ${before.places.toLocaleString()}`)
+        continue
+      }
+      if (after.places < before.places) {
+        losses.push(`${(before.places - after.places).toLocaleString()} ${tier} places (${before.places.toLocaleString()} → ${after.places.toLocaleString()})`)
+      }
+      if (after.names < before.names) {
+        losses.push(`${(before.names - after.names).toLocaleString()} ${tier} names (${before.names.toLocaleString()} → ${after.names.toLocaleString()})`)
+      }
     }
     if (losses.length && !event.payload?.force) {
       throw new Error(
-        `STOPPING: importing this build would destroy ${losses.join(" and ")}. ` +
-          `The load opens with DELETE FROM place and DELETE FROM name, so an import replaces everything. ` +
-          `This Workflow does not yet run the Wikidata label passes or the OpenStreetMap city matching, ` +
-          `which is where most of the names come from. Run with { force: true } if that is what you meant.`,
+        `STOPPING: importing this build would destroy ${losses.join(", ")}. ` +
+          `The load opens with DELETE FROM place and DELETE FROM name, so an import replaces everything.\n` +
+          `A country shortfall is expected and explainable: workerd's ICU carries 57 of the 76 CLDR ` +
+          `locales this service snapshots, so 19 languages cannot be generated here at all, and ` +
+          `Wikidata does not have every country in every one of them. Push a country snapshot from a ` +
+          `runtime with fuller ICU, or accept the difference with { force: true }.`,
       )
     }
 
