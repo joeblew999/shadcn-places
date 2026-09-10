@@ -48,8 +48,8 @@ await places.cities.search({ country: "BR", q: "our", locale: "ja" })
 Every endpoint is also a plain `GET`:
 
 ```bash
-curl "https://shadcn-places.gedw99.workers.dev/api/subdivisions?country=BR&locale=ja"
-curl "https://shadcn-places.gedw99.workers.dev/api/coverage?locale=th"
+curl "https://shadcn-places.gedw99.workers.dev/api/countries/BR/subdivisions?locale=ja"
+curl "https://shadcn-places.gedw99.workers.dev/api/coverage/th"
 ```
 
 `locale` is a request parameter, never a build-time list: the service holds every
@@ -69,7 +69,7 @@ Every name carries a **`kind`** — `override`, `translated`, `native`, `romanis
 `transliterated` — and the **source** it came from, so you always know whether you
 are reading a real translation or a fallback.
 
-**Ask rather than trust this table**: `/api/coverage?locale=th` reports what a
+**Ask rather than trust this table**: `/api/coverage/th` reports what a
 language actually has, and `/api/matrix` ranks what is missing by how many readers
 it affects.
 

@@ -40,12 +40,12 @@ const client = {
   },
   subdivisions: {
     list: (i: { country: string; locale: string }) =>
-      fetch(`${BASE}/api/subdivisions?country=${i.country}&locale=${i.locale}`).then((r) => r.json()),
+      fetch(`${BASE}/api/countries/${i.country}/subdivisions?locale=${i.locale}`).then((r) => r.json()),
   },
   cities: {
     search: (i: { country: string; subdivision?: string; q: string; locale: string }) =>
       fetch(
-        `${BASE}/api/cities?country=${i.country}&q=${encodeURIComponent(i.q)}&locale=${i.locale}` +
+        `${BASE}/api/countries/${i.country}/cities?q=${encodeURIComponent(i.q)}&locale=${i.locale}` +
           (i.subdivision ? `&subdivision=${encodeURIComponent(i.subdivision)}` : ""),
       ).then((r) => r.json()),
   },

@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "places": "bun scripts/places.ts",
-    "typecheck": "tsc",
+    "types": "wrangler types",
+    "typecheck": "bun run types && tsc",
     "test": "vitest run",
     "check": "bun run typecheck && bun run test",
     "check:install": "PLACES_INSTALL_TEST=1 vitest run tests/api/install.test.ts"
@@ -14,12 +15,12 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260908.1",
     "@orpc/cloudflare": "^2.0.0-beta.35",
-    "@orpc/contract": "^1.15.0",
-    "@orpc/evlog": "^1.14.11",
-    "@orpc/json-schema": "^1.15.0",
-    "@orpc/openapi": "^1.15.0",
-    "@orpc/server": "^1.15.0",
-    "@orpc/zod": "^1.15.0",
+    "@orpc/contract": "^2.0.0-beta.35",
+    "@orpc/evlog": "^2.0.0-beta.35",
+    "@orpc/json-schema": "^2.0.0-beta.35",
+    "@orpc/openapi": "^2.0.0-beta.35",
+    "@orpc/server": "^2.0.0-beta.35",
+    "@orpc/zod": "^2.0.0-beta.35",
     "@types/node": "^26.4.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
@@ -42,7 +43,7 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@orpc/client": ">=1.15.0",
+    "@orpc/client": "^2.0.0-beta.35",
     "@orpc/contract": ">=1.15.0",
     "zod": ">=4"
   }

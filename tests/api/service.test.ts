@@ -158,6 +158,45 @@ describe("the cascade", () => {
   })
 })
 
+describe("the URLs it published this morning", () => {
+  /**
+   * Every method moved when oRPC 2.0 made RESTful paths possible again.
+   *
+   * `@orpc/openapi` 1.15 could not generate a spec for any route with a dynamic
+   * path parameter, so the whole API was flat query strings. 2.0 fixes it, the
+   * paths came back — and `/api/subdivisions?country=TH` started answering 404
+   * while `contract.ts` still said, in a comment, that it kept working.
+   *
+   * A comment is not a compatibility guarantee. This is.
+   */
+  const legacy = [
+    ["/subdivisions?country=TH&locale=th", "/api/countries/TH/subdivisions"],
+    ["/cities?country=BR&q=sao&locale=pt&limit=3", "/api/countries/BR/cities"],
+    ["/city?id=city:1609350&locale=th", "/api/cities/city%3A1609350"],
+    ["/coverage?locale=th", "/api/coverage/th"],
+  ] as const
+
+  for (const [path, successor] of legacy) {
+    it.skipIf(!up)(`still answers ${path.split("?")[0]}`, async () => {
+      const res = await api(path)
+      expect(res.status, `${path} 404s — code written against it is broken`).toBe(200)
+      // Answered, and told it is legacy. RFC 8594: the caller who looks finds out,
+      // the caller who does not keeps working.
+      expect(res.headers.get("deprecation")).toBe("true")
+      expect(res.headers.get("link")).toContain(successor)
+      const body = (await res.json()) as { places?: unknown[]; place?: unknown; tiers?: unknown[] }
+      expect(body.places ?? body.place ?? body.tiers, "answered 200 with nothing in it").toBeTruthy()
+    })
+  }
+
+  it.skipIf(!up)("does not turn the old paths into a way around the country scoping", async () => {
+    // The rewrite must not become the hole the scoping was closed against: no
+    // country in the query means no path to rewrite to, so it stays a 404.
+    const res = await api("/cities?q=paris")
+    expect(res.status).toBe(404)
+  })
+})
+
 describe("it says what it knows", () => {
   it.skipIf(!up)("reports coverage as two numbers and which to read", async () => {
     const th = (await (await api("/coverage?locale=th")).json()) as { latinScript: boolean; tiers: unknown[] }

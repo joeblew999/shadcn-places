@@ -179,7 +179,7 @@ async function loadSubdivisions() {
   subdivision.innerHTML = ""; cities.innerHTML = ""; q.value = ""
   if (!code) { subdivision.disabled = true; q.disabled = true; return }
   subdivision.disabled = true
-  const { places } = await get(`/subdivisions?country=${code}&locale=${locale.value}`)
+  const { places } = await get(`/countries/${code}/subdivisions?locale=${locale.value}`)
   subdivision.add(new Option(places.length ? "— any —" : "— none in this dataset —", ""))
   for (const p of places) subdivision.add(option(p))
   subdivision.disabled = false
@@ -252,7 +252,7 @@ async function loadHeat() {
 }
 
 async function loadCoverage() {
-  const { tiers } = await get(`/coverage?locale=${locale.value}`)
+  const { tiers } = await get(`/coverage/${locale.value}`)
   const order = { country: 0, subdivision: 1, city: 2 }
   const body = $("coverage")
   body.innerHTML = ""

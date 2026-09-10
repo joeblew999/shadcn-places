@@ -15,14 +15,16 @@
  */
 
 import { implement, onError } from "@orpc/server"
+import type { StandardHandlerInterceptor } from "@orpc/server/standard"
 import { RPCHandler } from "@orpc/server/fetch"
-import { CORSPlugin, BatchHandlerPlugin } from "@orpc/server/plugins"
-import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins"
-import { experimental_ZodSmartCoercionPlugin as ZodSmartCoercionPlugin } from "@orpc/zod/zod4"
+import { CORSHandlerPlugin, BatchHandlerPlugin } from "@orpc/server/plugins"
+import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins"
+import { SmartCoercionHandlerPlugin } from "@orpc/json-schema"
 import { EvlogHandlerPlugin } from "@orpc/evlog"
 import { experimental_CloudflareTracer as CloudflareTracer } from "@orpc/cloudflare"
+import { OpenAPIGenerator } from "@orpc/openapi"
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
-import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4"
+import { ZodToJsonSchemaConverter } from "@orpc/zod"
 import { contract } from "./api/contract.ts"
 import { SOURCES, NON_LATIN_SCRIPT } from "../scripts/lib/sources.ts"
 /**
@@ -44,12 +46,18 @@ import SPEAKERS from "./api/speakers.json"
  */
 export { RefreshNames } from "./refresh.ts"
 
-interface Env {
-  DB: D1Database
-  REGISTRY: Fetcher
-  REFRESH: Workflow
-  ARCHIVE: R2Bucket
-}
+/**
+ * `Env` is generated from wrangler.jsonc by `bun run types`, not written here.
+ *
+ * It used to be four hand-maintained lines, which meant a binding could be added
+ * to the config and forgotten here — or removed from the config and still
+ * referenced — with nothing to say so. The generated interface comes from the
+ * bindings that will actually exist at runtime, so the two cannot disagree.
+ *
+ * It also carries the Workers runtime types. Without them `D1Database`,
+ * `R2Bucket` and `ExecutionContext` are simply unknown names, which is what this
+ * file had — invisible, because it was outside the typecheck entirely.
+ */
 
 /**
  * `ctx` as well as `env`, so a handler can reach `waitUntil`.
@@ -389,11 +397,66 @@ new CloudflareTracer().enable()
 
 const zodConverter = new ZodToJsonSchemaConverter()
 
-const errorLogging = [
-  onError((error) => {
+/**
+ * The spec, generated once per isolate and reused.
+ *
+ * 2.0's reference plugin takes a *document* rather than the converters and
+ * generate-options 1.x took — which is more work here and the right shape: the
+ * spec is now an ordinary value this module owns, so `/api/spec.json`, a
+ * generator and a test all read the same object instead of three call sites
+ * passing three sets of options to the same generator.
+ *
+ * `servers` is relative on purpose. An absolute origin would be wrong the moment
+ * this is called through a custom domain or a preview deployment, and a spec that
+ * names the wrong host generates clients that talk to the wrong host.
+ *
+ * Generated lazily and memoised: it walks every schema in the contract, which is
+ * not work to do at module scope on an isolate that may only ever serve one city
+ * search.
+ */
+const generator = new OpenAPIGenerator({ converters: [zodConverter] })
+let specPromise: Promise<Awaited<ReturnType<typeof generator.generate>>> | undefined
+const spec = () =>
+  (specPromise ??= generator.generate(contract, {
+    /**
+     * 3.1.0 rather than 2.0's 3.2.0 default.
+     *
+     * 3.2 is months old and most generators — openapi-generator, oapi-codegen,
+     * the Go and Rust ones people would point at this — do not read it yet. oRPC
+     * generates 3.2 and downgrades, so asking for 3.1 costs nothing here and is
+     * the difference between a spec somebody can run a code generator over and
+     * one they cannot.
+     */
+    version: "3.1.0",
+    // Document fields moved under `base` in 2.0; they were top-level in 1.x.
+    base: {
+      info: {
+        title: "shadcn-places",
+        version: "0.1.0",
+        description:
+          "Countries, states and cities in every language the open data has. " +
+          "Code MIT, data ODbL-1.0 — calling this API imposes nothing on you; redistributing the database does.",
+      },
+      servers: [{ url: "/api" }],
+    },
+  }))
+
+/**
+ * Built per handler rather than shared, because 2.0 types interceptors by context.
+ *
+ * A single `const errorLogging = [...]` array is inferred once, in a position
+ * with no contextual type, and is then assignable to neither handler. Written as
+ * a function it is inferred at each call site against the handler's own options,
+ * which is where the context type is. Same two lines of behaviour; the
+ * alternative is an `as any` over the one thing in this file whose job is to make
+ * failures visible.
+ */
+type ServiceContext = { env: Env; ctx: ExecutionContext }
+
+const logErrors = (): StandardHandlerInterceptor<ServiceContext> =>
+  onError((error: unknown) => {
     console.error("orpc", error)
-  }),
-]
+  })
 
 /**
  * The RPC transport: CORS, structured logs, and request batching.
@@ -408,57 +471,50 @@ const errorLogging = [
  * instead of three. Costs nothing when nobody uses it.
  */
 const rpc = new RPCHandler(router, {
-  plugins: [new CORSPlugin(), new EvlogHandlerPlugin({ logAbort: true }), new BatchHandlerPlugin()],
-  interceptors: errorLogging,
+  plugins: [new CORSHandlerPlugin(), new EvlogHandlerPlugin({ logAbort: true }), new BatchHandlerPlugin()],
+  interceptors: [logErrors()],
 })
 
 /**
  * The HTTP transport, with two plugins that replace things I hand-rolled badly.
  *
- * `SmartCoercionPlugin` coerces query strings to the types the schema declares.
- * `limit` arrived as the string "25" and failed validation — over HTTP only,
- * because the RPC transport sends real JSON numbers — and I fixed it by putting
- * `z.coerce` on that one field. This fixes the *class*: every future numeric or
- * boolean query parameter is handled, rather than the next one failing the same
- * way and being patched the same way.
+ * `SmartCoercionHandlerPlugin` coerces query strings to the types the schema
+ * declares. `limit` arrived as the string "25" and failed validation — over HTTP
+ * only, because the RPC transport sends real JSON numbers — and I fixed it by
+ * putting `z.coerce` on that one field. This fixes the *class*: every future
+ * numeric or boolean query parameter is handled, rather than the next one failing
+ * the same way and being patched the same way.
  *
- * `OpenAPIReferencePlugin` serves the spec and a reference UI as part of the
- * handler. Mine were two hand-written routes — a generator call and a string of
- * HTML with a Scalar script tag — sitting outside the thing that knows the
+ * `OpenAPIReferenceHandlerPlugin` serves the spec and a reference UI as part of
+ * the handler. Mine were two hand-written routes — a generator call and a string
+ * of HTML with a Scalar script tag — sitting outside the thing that knows the
  * routes. This is the same output from the component that owns it.
  */
 const openapi = new OpenAPIHandler(router, {
   plugins: [
-    new CORSPlugin(),
+    new CORSHandlerPlugin(),
     new EvlogHandlerPlugin({ logAbort: true }),
     /**
-     * The Zod-specific coercion plugin, not the generic one.
+     * Handed the Zod converter, which is the part that was missing before.
      *
-     * `SmartCoercionPlugin` from `@orpc/json-schema` — which is what the oRPC
-     * playground uses — did not coerce anything here: `limit=25` still arrived as
-     * a string and still failed validation. I removed the `z.coerce` workaround on
-     * the assumption it would, and broke the deployed service for two minutes.
+     * On 1.x there were two of these: a generic `SmartCoercionPlugin` from
+     * `@orpc/json-schema` and a Zod-specific one from `@orpc/zod/zod4`. I used the
+     * generic one with no converters, it coerced nothing, I removed the
+     * `z.coerce` workaround on the assumption that it had, and broke the deployed
+     * service for two minutes.
      *
-     * `@orpc/zod/zod4` ships its own, which understands Zod 4 schemas directly.
-     * The `z.coerce` calls stay until this is proven to replace them, and proven
-     * means tested locally rather than assumed from a playground that uses a
-     * different Zod entrypoint.
+     * 2.0 has one plugin and it takes `converters`. That is the whole fix: with
+     * the Zod converter it can see that `limit` is a number, and without it the
+     * plugin has no schema to read and silently does nothing — which is exactly
+     * the shape of the original failure.
+     *
+     * Verified against a running server before deploying, not assumed. The test
+     * `accepts limit from a query string` is what says so.
      */
-    new ZodSmartCoercionPlugin(),
-    new OpenAPIReferencePlugin({
-      schemaConverters: [zodConverter],
-      specGenerateOptions: {
-        info: {
-          title: "shadcn-places",
-          version: "0.1.0",
-          description:
-            "Countries, states and cities in every language the open data has. " +
-            "Code MIT, data ODbL-1.0 — calling this API imposes nothing on you; redistributing the database does.",
-        },
-      },
-    }),
+    new SmartCoercionHandlerPlugin({ converters: [zodConverter] }),
+    new OpenAPIReferenceHandlerPlugin({ spec }),
   ],
-  interceptors: errorLogging,
+  interceptors: [logErrors()],
 })
 
 /**
@@ -483,6 +539,52 @@ const cors = (res: Response): Response => {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
 }
 
+/**
+ * The flat query-parameter URLs this service was published with.
+ *
+ * Every method used to be `/api/<thing>?parent=…`, because `@orpc/openapi` 1.15
+ * could not generate a specification for *any* route with a dynamic path
+ * parameter. oRPC 2.0 fixes that and the RESTful paths are back — which silently
+ * 404'd all four of these until this existed.
+ *
+ * Rewritten rather than redirected. A 308 is the tidier answer and it breaks
+ * `curl` without `-L`, which is exactly how somebody would have tried this API
+ * from a terminal. The point of keeping an old URL alive is that code written
+ * against it keeps working, and a redirect only mostly achieves that.
+ *
+ * `Deprecation` and `Link` (RFC 8594) go on the response, so a caller who looks
+ * is told, and one who does not is not broken. This mapping should be deletable
+ * once nothing asks for these — not before, and not on my judgement of how long
+ * that is.
+ */
+const LEGACY_PATHS: Record<string, { param: string; to: (v: string) => string }> = {
+  "/api/subdivisions": { param: "country", to: (v) => `/api/countries/${v}/subdivisions` },
+  "/api/cities": { param: "country", to: (v) => `/api/countries/${v}/cities` },
+  "/api/city": { param: "id", to: (v) => `/api/cities/${encodeURIComponent(v)}` },
+  "/api/coverage": { param: "locale", to: (v) => `/api/coverage/${encodeURIComponent(v)}` },
+}
+
+/**
+ * Rewrite a legacy URL, or return null if it is not one.
+ *
+ * The parameter is moved out of the query string as well as into the path.
+ * Leaving it in is harmless for three of these and wrong for `city`, where the
+ * id would arrive twice; and a schema that has already consumed a path parameter
+ * has no reason to see it again.
+ */
+function rewriteLegacy(url: URL): URL | null {
+  const rule = LEGACY_PATHS[url.pathname]
+  if (!rule) return null
+  const value = url.searchParams.get(rule.param)
+  // Without the parameter there is no path to rewrite to. Falls through to the
+  // 404, which lists the endpoints — a better answer than a malformed redirect.
+  if (!value) return null
+  const next = new URL(url)
+  next.pathname = rule.to(value)
+  next.searchParams.delete(rule.param)
+  return next
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
@@ -500,26 +602,23 @@ export default {
     const viaHttp = await openapi.handle(request, { prefix: "/api", context: { env, ctx } })
     if (viaHttp.matched) return cors(viaHttp.response)
 
-    /**
-     * The registry, at the URL the install command actually uses.
-     *
-     * `shadcn add https://…/r/places-picker.json` is the documented shape, and the
-     * assets binding serves the `registry/` directory from the root — so the
-     * prefix has to be stripped before the lookup. Getting this wrong is a 404 on
-     * the one URL in the README that a stranger will try first, and it does not
-     * fail in any build.
-     */
-    /**
-     * An unmatched API path is a 404, not the service document.
-     *
-     * `/api/cities?q=paris` matched no route and fell through to the root, which
-     * answers 200 with a JSON description of the service. A caller who mistypes a
-     * path gets a success and a body that parses — the worst possible response,
-     * because their code carries on and fails somewhere else entirely.
-     *
-     * Found by a test asserting that an unscoped city search is refused. It *is*
-     * refused, by there being no such route; the 200 was the problem.
-     */
+    // Not a route today; was one this morning. Answered from the new path, and
+    // told so in the headers.
+    const legacy = rewriteLegacy(url)
+    if (legacy) {
+      const viaLegacy = await openapi.handle(new Request(legacy, request), {
+        prefix: "/api",
+        context: { env, ctx },
+      })
+      if (viaLegacy.matched) {
+        const res = cors(viaLegacy.response)
+        const headers = new Headers(res.headers)
+        headers.set("deprecation", "true")
+        headers.set("link", `<${legacy.pathname}>; rel="successor-version"`)
+        return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
+      }
+    }
+
     /**
      * The URLs the README published, pointing at what the plugin serves.
      *
@@ -551,40 +650,6 @@ export default {
      * Found by a test asserting that an unscoped city search is refused. It *is*
      * refused, by there being no such route; the 200 was the problem.
      */
-    /**
-     * The spec, and a page to read it on.
-     *
-     * Scalar is a script tag pointed at the document — no build step, no bundled
-     * UI, and it renders the same spec a code generator would consume. A public
-     * API whose only documentation is a README is one people integrate against by
-     * guessing.
-     */
-    if (url.pathname === "/openapi.json") {
-      const spec = await openapiSpec.generate(contract, {
-        info: {
-          title: "shadcn-places",
-          version: "0.1.0",
-          description:
-            "Countries, states and cities in every language the open data has. " +
-            "Code MIT, data ODbL-1.0 — calling this API imposes nothing on you; redistributing the database does.",
-        },
-        servers: [{ url: `${url.origin}/api` }],
-      })
-      return cors(Response.json(spec))
-    }
-
-    if (url.pathname === "/docs") {
-      return cors(
-        new Response(
-          `<!doctype html><html><head><meta charset="utf-8"><title>shadcn-places API</title>
-           <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-           <body><script id="api-reference" data-url="/openapi.json"></script>
-           <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script></body></html>`,
-          { headers: { "content-type": "text/html; charset=utf-8" } },
-        ),
-      )
-    }
-
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/rpc/")) {
       return cors(
         Response.json(
@@ -592,16 +657,18 @@ export default {
             error: "no such endpoint",
             path: url.pathname,
             // A city search must be scoped by a country: unscoped is a scan of
-            // every row, per keystroke, and D1 bills what it reads.
+            // every row, per keystroke, and D1 bills what it reads. That is why
+            // the country is in the path and not optional in the query.
             endpoints: [
               "GET /api/countries?locale=",
-              "GET /api/subdivisions?country=",
-              "GET /api/cities?country=&q=",
-              "GET /api/city?id=",
-              "GET /api/coverage?locale=",
+              "GET /api/countries/{country}/subdivisions",
+              "GET /api/countries/{country}/cities?q=",
+              "GET /api/cities/{id}",
+              "GET /api/coverage/{locale}",
               "GET /api/locales",
               "GET /api/matrix",
               "GET /api/attribution",
+              "GET /api/spec.json",
             ],
           },
           { status: 404 },
@@ -640,11 +707,12 @@ export default {
       {
         service: "shadcn-places",
         rpc: "/rpc",
-        openapi: "/api",
         registry: "/r/places-picker.json",
+        // `openapi` was in here twice — the second silently won, so the first
+        // value was never served and nothing said so. It typechecks now.
         openapi: "/api/spec.json",
         docs: "/api",
-        licence: { code: "MIT", data: "ODbL-1.0", notice: "/api/attribution/get" },
+        licence: { code: "MIT", data: "ODbL-1.0", notice: "/api/attribution" },
       },
       { status: 200 },
     )

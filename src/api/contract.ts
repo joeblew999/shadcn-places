@@ -21,6 +21,7 @@
  */
 
 import { oc } from "@orpc/contract"
+import { openapi } from "@orpc/openapi"
 import { z } from "zod"
 
 /** BCP-47, loosely. Rejecting exotic-but-valid tags would be worse than passing one through. */
@@ -61,24 +62,20 @@ const Place = z.object({
 })
 
 /**
- * Every method is also a GET, and every parameter is a query parameter.
+ * Every method is also a GET at a readable path.
  *
- * The paths used to be RESTful — `/countries/{country}/subdivisions` — and they
- * had to change, which is worth recording because the reason is not taste.
+ * These were flat query-parameter routes for an afternoon, and the reason is
+ * worth keeping: `@orpc/openapi` 1.15.0 could not generate a specification for
+ * *any* route with a dynamic path parameter — not for a particular schema shape,
+ * for all of them — while the routes served perfectly at runtime. The choice was
+ * a prettier URL or a machine-readable API, which is not a close call.
  *
- * `@orpc/openapi` 1.15.0 cannot generate a specification for any route with a
- * dynamic path parameter. Not for a particular schema shape: for any of them.
- * A required string, a strict object, even oRPC's own `inputStructure: "detailed"`
- * all fail with *"input schema must be an object with all dynamic params as
- * required"* while the converter demonstrably emits exactly that. The routes
- * served fine at runtime — only the spec generator refused them.
- *
- * So the choice was a prettier URL or a machine-readable API, and for a service
- * whose whole argument is that anyone can adopt it, that is not a close call. A
- * public API with no spec is one people integrate against by guessing.
- *
- * `/api/subdivisions?country=BR` is also, on reflection, easier to construct by
- * hand than the path form, and it makes every endpoint the same shape.
+ * oRPC 2.0 fixes it, so the RESTful shape is back — and moving them 404'd every
+ * flat URL this service had already published. `LEGACY_PATHS` in src/index.ts
+ * rewrites those onto these and marks the response deprecated, and
+ * tests/api/service.test.ts calls each one, because a public API that moves its
+ * URLs is not one anybody builds on and a comment promising otherwise is not a
+ * compatibility guarantee.
  *
  * oRPC serves all of this over its own RPC protocol regardless, which is what the
  * typed client speaks. The explicit routes are for everyone else: a public API
@@ -88,14 +85,14 @@ const Place = z.object({
 export const contract = {
   countries: {
     list: oc
-      .route({ method: "GET", path: "/countries" })
+      .meta(openapi({ method: "GET", path: "/countries" }))
       .input(z.object({ locale: Locale.default("en") }))
       .output(z.object({ places: z.array(Place) })),
   },
 
   subdivisions: {
     list: oc
-      .route({ method: "GET", path: "/subdivisions" })
+      .meta(openapi({ method: "GET", path: "/countries/{country}/subdivisions" }))
       .input(
         z.object({
           /** ISO-3166-1 alpha-2. Required: it is the index this query rides on. */
@@ -117,7 +114,7 @@ export const contract = {
      * beginning of the place they are looking for.
      */
     search: oc
-      .route({ method: "GET", path: "/cities" })
+      .meta(openapi({ method: "GET", path: "/countries/{country}/cities" }))
       .input(
         z.object({
           country: z.string().length(2),
@@ -140,7 +137,7 @@ export const contract = {
 
     /** One city by id, for rendering a stored reference without a search. */
     get: oc
-      .route({ method: "GET", path: "/city" })
+      .meta(openapi({ method: "GET", path: "/cities/{id}" }))
       .input(z.object({ id: z.string(), locale: Locale.default("en") }))
       .output(z.object({ place: Place.nullable() })),
   },
@@ -153,7 +150,7 @@ export const contract = {
    * a credit nobody can find programmatically is a credit that will not appear.
    */
   attribution: {
-    get: oc.route({ method: "GET", path: "/attribution" }).input(z.object({})).output(
+    get: oc.meta(openapi({ method: "GET", path: "/attribution" })).input(z.object({})).output(
       z.object({
         sources: z.array(z.object({ id: z.string(), licence: z.string(), url: z.string().optional() })),
         notice: z.string(),
@@ -175,7 +172,7 @@ export const contract = {
    */
   locales: {
     list: oc
-      .route({ method: "GET", path: "/locales" })
+      .meta(openapi({ method: "GET", path: "/locales" }))
       .input(
         z.object({
           /**
@@ -231,7 +228,7 @@ export const contract = {
    */
   matrix: {
     get: oc
-      .route({ method: "GET", path: "/matrix" })
+      .meta(openapi({ method: "GET", path: "/matrix" }))
       .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }))
       .output(
         z.object({
@@ -263,7 +260,7 @@ export const contract = {
    */
   coverage: {
     get: oc
-      .route({ method: "GET", path: "/coverage" })
+      .meta(openapi({ method: "GET", path: "/coverage/{locale}" }))
       .input(z.object({ locale: Locale }))
       .output(
         z.object({

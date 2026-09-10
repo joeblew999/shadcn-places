@@ -22,6 +22,7 @@
 
 import { createORPCClient } from "@orpc/client"
 import { RPCLink } from "@orpc/client/fetch"
+import { BatchLinkPlugin, DedupeRequestsPlugin, RetryAfterPlugin } from "@orpc/client/plugins"
 import type { ContractRouterClient } from "@orpc/contract"
 import { contract } from "./api/contract.ts"
 
@@ -52,10 +53,64 @@ const DEFAULT_URL = "https://shadcn-places.gedw99.workers.dev"
 export function createPlacesClient(options: PlacesClientOptions = {}): PlacesClient {
   const base = (options.url ?? DEFAULT_URL).replace(/\/$/, "")
   const link = new RPCLink({
-    url: `${base}/rpc`,
+    /**
+     * Origin and path, separately — which is a 2.0 change and a real improvement.
+     *
+     * 1.x took one `url` and split it internally. 2.0 asks for the origin (used
+     * for CORS and for building the request) and the prefix (which must match the
+     * handler's) as two values, so a mismatch between them is a type error rather
+     * than a 404 at runtime. The handler mounts at `/rpc`, so this is `/rpc`.
+     */
+    origin: base,
+    url: "/rpc",
     headers: options.headers,
-    // oRPC's fetch adapter takes a custom fetch; a service binding is one.
-    fetch: options.fetch ? (request) => options.fetch!(request) : undefined,
+    /**
+     * The custom fetch, adapted to 2.0's signature.
+     *
+     * 1.x handed the override a `Request`; 2.0 hands it `(url, init)` — the same
+     * pair it would pass to `globalThis.fetch`. A service binding's `.fetch` takes
+     * a `Request`, so the adapter builds one. This is the *only* line standing
+     * between this client and a Worker-to-Worker call with no public hop, and the
+     * test that asserts the custom fetch is actually called exists because
+     * a silently-ignored fetch would look identical from the outside.
+     */
+    fetch: options.fetch
+      ? (url, init) => options.fetch!(new Request(url, init))
+      : undefined,
+    plugins: [
+      /**
+       * The other half of the batching, without which the server's half does
+       * nothing.
+       *
+       * `BatchHandlerPlugin` went on the handler and no client batched, so the
+       * feature was inert — a plugin that costs nothing and achieves nothing.
+       * The picker's cascade is three sequential calls (countries, then that
+       * country's subdivisions, then a search), and on a slow connection three
+       * round trips is what the user feels.
+       */
+      new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] }),
+
+      /**
+       * Identical in-flight calls collapse into one.
+       *
+       * A picker mounted twice on a page, or React asking for the country list
+       * from two components, currently makes two requests for the same 257 rows.
+       * Reference data is the ideal case for this: the answer cannot change
+       * between two calls a millisecond apart.
+       */
+      new DedupeRequestsPlugin({ groups: [{ condition: () => true, context: {} }] }),
+
+      /**
+       * Honour `Retry-After` rather than hammering.
+       *
+       * This service leans on Wikidata and Overpass, both of which rate-limit, and
+       * it will eventually rate-limit its own callers. A client that respects the
+       * header is the difference between backing off and making it worse — and
+       * having spent today on the receiving end of 429s, it would be strange to
+       * ship a client that ignores them.
+       */
+      new RetryAfterPlugin(),
+    ],
   })
   return createORPCClient(link)
 }

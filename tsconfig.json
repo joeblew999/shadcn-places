@@ -26,5 +26,21 @@
   // points at files that exist and declares the components it needs; that is
   // tests/repo/registry.test.ts. What is not checkable here is checked by
   // installing it, which is the only honest test of a distributed artefact.
-  "include": ["src/api", "src/db", "scripts", "tests", "*.ts"]
+  //
+  // Everything else in `src` is included, and it was not.
+  //
+  // The list used to name `src/api` and `src/db` and stop there, which left
+  // `src/index.ts` — the Worker, the thing that actually serves every request —
+  // outside the program entirely. `bun run typecheck` passed while the
+  // entrypoint was written against a different major version of oRPC. It was
+  // never checked by anything: wrangler bundles it without typechecking, and no
+  // test imports it. `src/client.ts` was checked only by accident, because
+  // tests/api/service.test.ts imports it.
+  //
+  // An allowlist of directories silently excludes every file added later. So
+  // this excludes the one directory that genuinely cannot compile here and
+  // includes the rest by default — the failure mode of which is a type error,
+  // rather than an unchecked file that nobody notices for a week.
+  "include": ["src", "scripts", "tests", "*.ts"],
+  "exclude": ["src/web", "node_modules", "example", ".build", ".stage"]
 }

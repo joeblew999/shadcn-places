@@ -7,3 +7,10 @@ node_modules/
 .build/
 .wrangler/
 dist/
+
+# Generated from wrangler.jsonc by `bun run types`, which `typecheck` runs first.
+# Half a megabyte of runtime declarations that take 0.5s to rebuild — and a
+# generated file in git is a generated file that goes stale. This repo has been
+# caught by that twice already: a registry item serving an old component, and
+# data/ describing a database it was no longer exporting.
+worker-configuration.d.ts
