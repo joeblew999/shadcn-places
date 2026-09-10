@@ -122,6 +122,16 @@ export async function sync(argv: string[]): Promise<void> {
     "for t in countries subdivisions cities; do gzip -9 -c .build/$t.merged.ndjson > data/$t.ndjson.gz; done",
   ])
 
+  /**
+   * Rebuild the served registry items before the checks, not after.
+   *
+   * They embed the component's source, so they go stale the moment it changes —
+   * and a stale one installs an old component with no error at all. Regenerating
+   * here means the drift check that follows is testing something current rather
+   * than failing on a step somebody forgot.
+   */
+  run("rebuilding the registry items", places("registry"))
+
   run("checks", ["bun", "run", "check"])
   console.log("\n  Synced. `bun x wrangler deploy` if the Worker itself changed.")
 }

@@ -22,6 +22,10 @@ const OPS: Record<string, { help: string; run: (argv: string[]) => Promise<void>
     help: "extract [countries|subdivisions|cities]   stream staged sources into .build/*.ndjson — no network",
     run: async (argv) => (await import("./places/extract.ts")).extract(argv),
   },
+  registry: {
+    help: "registry                      build the served registry items, with the source inside them",
+    run: async (argv) => (await import("./places/registry.ts")).registry(argv),
+  },
   sync: {
     help: "sync [--full] [--force] [--dry-run] [--local-only]   the whole cycle in the right order",
     run: async (argv) => (await import("./places/sync.ts")).sync(argv),

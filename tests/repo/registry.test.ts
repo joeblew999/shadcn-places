@@ -62,6 +62,41 @@ describe("registry", () => {
         }
       })
 
+      it("SERVES the source, not just a path to it", () => {
+        /**
+         * The check that was missing, and the bug it would have caught.
+         *
+         * `registry.json` names files by path, which means something here and
+         * nothing to somebody's `shadcn add`. The served item must carry the file
+         * *content* — and mine did not, so installing fetched the item, wrote
+         * button, command, dialog and popover, and silently skipped the component
+         * itself. It exited zero and printed a success.
+         *
+         * The one thing this project asks people to install had never once
+         * installed, and this file passed the whole time because it verified the
+         * path existed *in this repository*.
+         */
+        const served = resolve(ROOT, "public", `${item.name}.json`)
+        expect(existsSync(served), `public/${item.name}.json is missing — run: bun run places registry`).toBe(true)
+        const built = json(`public/${item.name}.json`) as { files?: { content?: string; target?: string }[] }
+        expect(built.files?.length, "the served item has no files").toBeGreaterThan(0)
+        for (const f of built.files ?? []) {
+          expect(f.content?.length, `a served file has no content — the installer has no way to write it`).toBeGreaterThan(100)
+          expect(f.target, "a served file has no target — the installer will not know where to put it").toBeTruthy()
+        }
+      })
+
+      it("serves the same source that is in the repository", () => {
+        // Generated files drift. If these disagree, `places registry` has not been
+        // re-run since the component changed and installers get the old one.
+        const built = json(`public/${item.name}.json`) as { files?: { path: string; content: string }[] }
+        for (const f of built.files ?? []) {
+          expect(f.content, `public/${item.name}.json is stale — run: bun run places registry`).toBe(
+            readFileSync(resolve(ROOT, f.path), "utf8"),
+          )
+        }
+      })
+
       it("has a standalone item file, which is what `shadcn add <url>` fetches", () => {
         const path = `registry/${item.name}.json`
         expect(existsSync(resolve(ROOT, path)), `${path} is missing — the URL form of the install would 404`).toBe(true)
